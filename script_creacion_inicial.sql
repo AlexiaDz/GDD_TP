@@ -6,7 +6,9 @@ IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'INSERT_PROMOCIONADOS')
     EXEC('CREATE SCHEMA INSERT_PROMOCIONADOS');
 GO
 
-
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.CrearTablas
+AS
+BEGIN
 CREATE TABLE INSERT_PROMOCIONADOS.medio_pago(
   id     BIGINT IDENTITY(1,1) PRIMARY KEY,
   medio  VARCHAR(255) NOT NULL 
@@ -47,16 +49,9 @@ CREATE TABLE INSERT_PROMOCIONADOS.provincia(
 
 CREATE TABLE INSERT_PROMOCIONADOS.localidad(
   id            BIGINT IDENTITY(1,1) PRIMARY KEY,
-  nombre        VARCHAR(255) NOT NULL
-);
-
-CREATE TABLE INSERT_PROMOCIONADOS.ubicacion(
-  id            BIGINT IDENTITY(1,1) PRIMARY KEY,
-  direccion     VARCHAR(255) NOT NULL,
+  nombre        VARCHAR(255) NOT NULL,
   provincia_id  BIGINT NOT NULL
-                REFERENCES INSERT_PROMOCIONADOS.provincia(id),
-  localidad_id  BIGINT NOT NULL
-                REFERENCES INSERT_PROMOCIONADOS.localidad(id)
+                REFERENCES INSERT_PROMOCIONADOS.provincia(id)
 );
 
 CREATE TABLE INSERT_PROMOCIONADOS.sede(
@@ -64,8 +59,9 @@ CREATE TABLE INSERT_PROMOCIONADOS.sede(
   razon_social  VARCHAR(255) NOT NULL,
   cuit          VARCHAR(255) NOT NULL,
   nombre        VARCHAR(255) NOT NULL UNIQUE,
-  ubicacion_id  BIGINT NOT NULL
-                REFERENCES INSERT_PROMOCIONADOS.ubicacion(id),
+  localidad_id  BIGINT NOT NULL
+                REFERENCES INSERT_PROMOCIONADOS.localidad(id),
+  direccion     VARCHAR(255),
   telefono      VARCHAR(255),
   mail          VARCHAR(255)
 );
@@ -73,22 +69,24 @@ CREATE TABLE INSERT_PROMOCIONADOS.sede(
 
 CREATE TABLE INSERT_PROMOCIONADOS.profesor(
   id           BIGINT IDENTITY(1,1) PRIMARY KEY,
-  dni          VARCHAR(48)  NOT NULL,
+  dni          VARCHAR(255)  NOT NULL,
   nombre       VARCHAR(255) NOT NULL,
   apellido     VARCHAR(255) NOT NULL,
-  ubicacion_id BIGINT NOT NULL
-               REFERENCES INSERT_PROMOCIONADOS.ubicacion(id),
+  localidad_id BIGINT NOT NULL
+               REFERENCES INSERT_PROMOCIONADOS.localidad(id),
+  direccion    VARCHAR(255),
   telefono     VARCHAR(255),
   mail         VARCHAR(255)
 );
 
 CREATE TABLE INSERT_PROMOCIONADOS.alumno(
   legajo       BIGINT       PRIMARY KEY,
-  dni          BIGINT       NOT NULL,
+  dni          VARCHAR(255)       NOT NULL,
   nombre       VARCHAR(255) NOT NULL,
   apellido     VARCHAR(255) NOT NULL,
-  ubicacion_id BIGINT NOT NULL
-               REFERENCES INSERT_PROMOCIONADOS.ubicacion(id),
+  localidad_id BIGINT NOT NULL
+               REFERENCES INSERT_PROMOCIONADOS.localidad(id),
+  direccion    VARCHAR(255),
   telefono     VARCHAR(255),
   mail         VARCHAR(255)
 );
@@ -102,7 +100,8 @@ CREATE TABLE INSERT_PROMOCIONADOS.curso(
                   REFERENCES INSERT_PROMOCIONADOS.profesor(id),
   categoria_id    BIGINT NULL
                   REFERENCES INSERT_PROMOCIONADOS.categoria(id),
-  descripcion     VARCHAR(480) NOT NULL,
+  nombre     VARCHAR(255) NOT NULL,
+  descripcion     VARCHAR(255) NOT NULL,
   fecha_inicio    DATE   NOT NULL,
   fecha_fin       DATE   NOT NULL,
   duracion_meses  INT    NOT NULL,
@@ -252,6 +251,9 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
                 REFERENCES INSERT_PROMOCIONADOS.medio_pago(id)
 );
 
+END;
+
+
 
 
 /* =====================================================
@@ -264,3 +266,882 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
 -- Los campos de institucion decidimos ponerlos en la tabla de sede ya que la instititucion es una sola, no vemos necesario sumar otra tabla
 -- Decidimos hacer una tabla ubicacion ya que tanto la sede como el profesor y el alumno tienen domicilio, localidad y provincia
 -- Para simplificar el procesamiento del script y ahorrar memoria de la BBDD decidimos no crear la clase Contacto para guardar los mails y telefonos de las sedes, alumnos y profesores
+
+
+
+-- Procedimiento para migrar datos básicos
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarDatosBasicos
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando medios de pago...';
+        INSERT INTO INSERT_PROMOCIONADOS.medio_pago (medio)
+        SELECT DISTINCT Pago_MedioPago 
+        FROM gd_esquema.Maestra 
+        WHERE Pago_MedioPago IS NOT NULL;
+        
+        PRINT 'Migrando días...';
+        INSERT INTO INSERT_PROMOCIONADOS.dias (nombre)
+        SELECT DISTINCT Curso_Dia 
+        FROM gd_esquema.Maestra 
+        WHERE Curso_Dia IS NOT NULL;
+        
+        PRINT 'Migrando turnos...';
+        INSERT INTO INSERT_PROMOCIONADOS.turno (turno)
+        SELECT DISTINCT Curso_Turno 
+        FROM gd_esquema.Maestra 
+        WHERE Curso_Turno IS NOT NULL;
+        
+        PRINT 'Migrando categorías...';
+        INSERT INTO INSERT_PROMOCIONADOS.categoria (nombre)
+        SELECT DISTINCT Curso_Categoria 
+        FROM gd_esquema.Maestra 
+        WHERE Curso_Categoria IS NOT NULL;
+        
+        PRINT 'Migrando estados de inscripción...';
+        INSERT INTO INSERT_PROMOCIONADOS.estado_inscripcion (estado)
+        SELECT DISTINCT Inscripcion_Estado 
+        FROM gd_esquema.Maestra 
+        WHERE Inscripcion_Estado IS NOT NULL;
+        
+        PRINT 'Migrando provincias...';
+        INSERT INTO INSERT_PROMOCIONADOS.provincia (nombre)
+        SELECT DISTINCT Sede_Provincia FROM gd_esquema.Maestra WHERE Sede_Provincia IS NOT NULL
+        UNION
+        SELECT DISTINCT Profesor_Provincia FROM gd_esquema.Maestra WHERE Profesor_Provincia IS NOT NULL
+        UNION
+        SELECT DISTINCT Alumno_Provincia FROM gd_esquema.Maestra WHERE Alumno_Provincia IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de datos básicos completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de datos básicos: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar localidades
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarLocalidades
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando localidades...';
+        
+        -- Localidades de sede
+        INSERT INTO INSERT_PROMOCIONADOS.localidad (nombre, provincia_id)
+        SELECT DISTINCT 
+            m.Sede_Localidad,
+            p.id
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.provincia p ON p.nombre = m.Sede_Provincia
+        WHERE m.Sede_Localidad IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM INSERT_PROMOCIONADOS.localidad l WHERE l.nombre = m.Sede_Localidad AND l.provincia_id = p.id);
+        
+        -- Localidades de profesor
+        INSERT INTO INSERT_PROMOCIONADOS.localidad (nombre, provincia_id)
+        SELECT DISTINCT 
+            m.Profesor_Localidad,
+            p.id
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.provincia p ON p.nombre = m.Profesor_Provincia
+        WHERE m.Profesor_Localidad IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM INSERT_PROMOCIONADOS.localidad l WHERE l.nombre = m.Profesor_Localidad AND l.provincia_id = p.id);
+        
+        -- Localidades de alumno
+        INSERT INTO INSERT_PROMOCIONADOS.localidad (nombre, provincia_id)
+        SELECT DISTINCT 
+            m.Alumno_Localidad,
+            p.id
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.provincia p ON p.nombre = m.Alumno_Provincia
+        WHERE m.Alumno_Localidad IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM INSERT_PROMOCIONADOS.localidad l WHERE l.nombre = m.Alumno_Localidad AND l.provincia_id = p.id);
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de localidades completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de localidades: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar sedes
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarSedes
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando sedes...';
+        -- Ejemplo: MigrarSedes (uso de TRIM/UPPER y join por nombre+provincia)
+        INSERT INTO INSERT_PROMOCIONADOS.sede (razon_social, cuit, nombre, localidad_id, direccion, telefono, mail)
+        SELECT DISTINCT 
+            m.Institucion_RazonSocial,
+            m.Institucion_Cuit,
+            m.Sede_Nombre,
+            l.id,
+            m.Sede_Direccion,
+            m.Sede_Telefono,
+            m.Sede_Mail
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.provincia p ON UPPER(LTRIM(RTRIM(p.nombre))) = UPPER(LTRIM(RTRIM(m.Sede_Provincia)))
+        INNER JOIN INSERT_PROMOCIONADOS.localidad l ON l.nombre = m.Sede_Localidad AND l.provincia_id = p.id
+        WHERE m.Sede_Nombre IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM INSERT_PROMOCIONADOS.sede s WHERE s.nombre = m.Sede_Nombre);
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de sedes completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de sedes: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar profesores
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarProfesores
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando profesores...';
+        INSERT INTO INSERT_PROMOCIONADOS.profesor (dni, nombre, apellido, localidad_id, direccion, telefono, mail)
+        SELECT DISTINCT 
+            m.Profesor_Dni,
+            m.Profesor_nombre,
+            m.Profesor_Apellido,
+            l.id,
+            m.Profesor_Direccion,
+            m.Profesor_Telefono,
+            m.Profesor_Mail
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.localidad l ON l.nombre = m.Profesor_Localidad
+        WHERE m.Profesor_Dni IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de profesores completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de profesores: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar alumnos
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarAlumnos
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando alumnos...';
+        INSERT INTO INSERT_PROMOCIONADOS.alumno (legajo, dni, nombre, apellido, localidad_id, direccion, telefono, mail)
+        SELECT DISTINCT 
+            m.Alumno_Legajo,
+            m.Alumno_Dni,
+            m.Alumno_Nombre,
+            m.Alumno_Apellido,
+            l.id,
+            m.Alumno_Direccion,
+            m.Alumno_Telefono,
+            m.Alumno_Mail
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.localidad l ON l.nombre = m.Alumno_Localidad
+        WHERE m.Alumno_Legajo IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de alumnos completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de alumnos: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar cursos
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarCursos
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando cursos...';
+        INSERT INTO INSERT_PROMOCIONADOS.curso (sede_id, profesor_id, categoria_id, descripcion, fecha_inicio, fecha_fin, duracion_meses, turno_id, precio_mensual)
+        SELECT DISTINCT 
+            s.id,
+            p.id,
+            c.id,
+            m.Curso_Nombre,
+            m.Curso_FechaInicio,
+            m.Curso_FechaFin,
+            m.Curso_DuracionMeses,
+            t.id,
+            m.Curso_PrecioMensual
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.sede s ON s.nombre = m.Sede_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.profesor p ON p.dni = m.Profesor_Dni
+        INNER JOIN INSERT_PROMOCIONADOS.categoria c ON c.nombre = m.Curso_Categoria
+        INNER JOIN INSERT_PROMOCIONADOS.turno t ON t.turno = m.Curso_Turno
+        WHERE m.Curso_Nombre IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de cursos completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de cursos: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar módulos
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarModulos
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando módulos...';
+        INSERT INTO INSERT_PROMOCIONADOS.modulos (nombre, curso_id)
+        SELECT DISTINCT 
+            m.Modulo_Nombre,
+            c.id
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        WHERE m.Modulo_Nombre IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de módulos completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de módulos: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar evaluaciones
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarEvaluaciones
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando evaluaciones...';
+        INSERT INTO INSERT_PROMOCIONADOS.evaluacion (fecha_evaluacion, modulo_id)
+        SELECT DISTINCT 
+            m.Evaluacion_Curso_fechaEvaluacion,
+            modu.id
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.modulos modu ON modu.nombre = m.Modulo_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.id = modu.curso_id
+        WHERE m.Evaluacion_Curso_fechaEvaluacion IS NOT NULL AND m.Modulo_Nombre IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de evaluaciones completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de evaluaciones: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar evaluaciones de alumnos
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarEvaluacionesAlumnos
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando evaluaciones de alumnos...';
+        INSERT INTO INSERT_PROMOCIONADOS.evaluacion_alumno (evaluacion_id, alumno_legajo, nota, presente, instancia)
+        SELECT DISTINCT 
+            e.id,
+            m.Alumno_Legajo,
+            m.Evaluacion_Curso_Nota,
+            ISNULL(m.Evaluacion_Curso_Presente, 1),
+            m.Evaluacion_Curso_Instancia
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.evaluacion e ON e.fecha_evaluacion = m.Evaluacion_Curso_fechaEvaluacion
+        INNER JOIN INSERT_PROMOCIONADOS.modulos modu ON modu.id = e.modulo_id AND modu.nombre = m.Modulo_Nombre
+        WHERE m.Alumno_Legajo IS NOT NULL AND m.Evaluacion_Curso_fechaEvaluacion IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de evaluaciones de alumnos completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de evaluaciones de alumnos: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar trabajos prácticos
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarTrabajosPracticos
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando trabajos prácticos...';
+        INSERT INTO INSERT_PROMOCIONADOS.trabajo_practico (curso_id, alumno_legajo, fecha_evaluacion, nota)
+        SELECT DISTINCT 
+            c.id,
+            m.Alumno_Legajo,
+            m.Trabajo_Practico_FechaEvaluacion,
+            m.Trabajo_Practico_Nota
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        WHERE m.Alumno_Legajo IS NOT NULL AND m.Trabajo_Practico_FechaEvaluacion IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de trabajos prácticos completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de trabajos prácticos: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar inscripciones a cursos
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarInscripcionesCurso
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando inscripciones a cursos...';
+        INSERT INTO INSERT_PROMOCIONADOS.inscripcion_curso (alumno_legajo, curso_id, estado_inscripcion_id, fecha_inscripcion, fecha_respuesta)
+        SELECT DISTINCT 
+            m.Alumno_Legajo,
+            c.id,
+            e.id,
+            m.Inscripcion_Fecha,
+            m.Inscripcion_FechaRespuesta
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.estado_inscripcion e ON e.estado = m.Inscripcion_Estado
+        WHERE m.Alumno_Legajo IS NOT NULL AND m.Curso_Nombre IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de inscripciones a cursos completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de inscripciones a cursos: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar días por curso
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarDiasPorCurso
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando días por curso...';
+        INSERT INTO INSERT_PROMOCIONADOS.dias_por_curso (dia_id, curso_id)
+        SELECT DISTINCT 
+            d.id,
+            c.id
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.dias d ON d.nombre = m.Curso_Dia
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        WHERE m.Curso_Dia IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de días por curso completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de días por curso: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar finales
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarFinales
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando finales...';
+        INSERT INTO INSERT_PROMOCIONADOS.final (curso_id, fecha_evaluacion, hora)
+        SELECT DISTINCT 
+            c.id,
+            m.Examen_Final_Fecha,
+            m.Examen_Final_Hora
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        WHERE m.Examen_Final_Fecha IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de finales completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de finales: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar inscripciones a finales
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarInscripcionesFinal
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando inscripciones a finales...';
+        INSERT INTO INSERT_PROMOCIONADOS.inscripcion_final (alumno_legajo, final_id, fecha_inscripcion)
+        SELECT DISTINCT 
+            m.Alumno_Legajo,
+            f.id,
+            m.Inscripcion_Final_Fecha
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.final f ON f.fecha_evaluacion = m.Examen_Final_Fecha
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.id = f.curso_id AND c.descripcion = m.Curso_Nombre
+        WHERE m.Alumno_Legajo IS NOT NULL AND m.Inscripcion_Final_Fecha IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de inscripciones a finales completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de inscripciones a finales: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar evaluaciones finales
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarEvaluacionesFinales
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando evaluaciones finales...';
+        INSERT INTO INSERT_PROMOCIONADOS.evaluacion_final (alumno_legajo, final_id, profesor_id, nota, presente)
+        SELECT DISTINCT 
+            m.Alumno_Legajo,
+            f.id,
+            p.id,
+            m.Evaluacion_Final_Nota,
+            ISNULL(m.Evaluacion_Final_Presente, 1)
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.final f ON f.fecha_evaluacion = m.Examen_Final_Fecha
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.id = f.curso_id AND c.descripcion = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.profesor p ON p.dni = m.Profesor_Dni
+        WHERE m.Alumno_Legajo IS NOT NULL AND m.Examen_Final_Fecha IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de evaluaciones finales completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de evaluaciones finales: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar períodos
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarPeriodos
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando períodos...';
+        INSERT INTO INSERT_PROMOCIONADOS.periodo (mes, anio)
+        SELECT DISTINCT 
+            m.Periodo_Mes,
+            m.Periodo_Anio
+        FROM gd_esquema.Maestra m
+        WHERE m.Periodo_Mes IS NOT NULL AND m.Periodo_Anio IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de períodos completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de períodos: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar facturas
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarFacturas
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        PRINT 'Migrando facturas...';
+
+        -- Permitir insertar el nro_factura original en la columna IDENTITY
+        SET IDENTITY_INSERT INSERT_PROMOCIONADOS.factura ON;
+
+        INSERT INTO INSERT_PROMOCIONADOS.factura (nro_factura, fecha, fecha_vencimiento, alumno_legajo, importe_total)
+        SELECT DISTINCT 
+            m.Factura_Numero,
+            m.Factura_FechaEmision,
+            m.Factura_FechaVencimiento,
+            m.Alumno_Legajo,
+            m.Factura_Total
+        FROM gd_esquema.Maestra m
+        WHERE m.Factura_Numero IS NOT NULL 
+          AND m.Alumno_Legajo IS NOT NULL
+          AND m.Factura_FechaEmision IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM INSERT_PROMOCIONADOS.factura f WHERE f.nro_factura = m.Factura_Numero
+          );
+
+        SET IDENTITY_INSERT INSERT_PROMOCIONADOS.factura OFF;
+
+        COMMIT TRANSACTION;
+        PRINT 'Migración de facturas completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+        SET IDENTITY_INSERT INSERT_PROMOCIONADOS.factura OFF;
+        PRINT 'Error en migración de facturas: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar detalles de factura
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarDetallesFactura
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando detalles de factura...';
+        INSERT INTO INSERT_PROMOCIONADOS.detalle_factura (curso_id, nro_factura, periodo_id, importe)
+        SELECT DISTINCT 
+            c.id,
+            m.Factura_Numero,
+            p.id,
+            m.Detalle_Factura_Importe
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.periodo p ON p.mes = m.Periodo_Mes AND p.anio = m.Periodo_Anio
+        WHERE m.Factura_Numero IS NOT NULL 
+        AND m.Curso_Nombre IS NOT NULL
+        AND m.Periodo_Mes IS NOT NULL 
+        AND m.Periodo_Anio IS NOT NULL
+        AND m.Detalle_Factura_Importe IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de detalles de factura completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de detalles de factura: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar pagos
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarPagos
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando pagos...';
+        INSERT INTO INSERT_PROMOCIONADOS.pago (nro_factura, fecha, importe, medio_pago_id)
+        SELECT DISTINCT 
+            m.Factura_Numero,
+            m.Pago_Fecha,
+            m.Pago_Importe,
+            mp.id
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.medio_pago mp ON mp.medio = m.Pago_MedioPago
+        WHERE m.Factura_Numero IS NOT NULL 
+        AND m.Pago_Fecha IS NOT NULL
+        AND m.Pago_Importe IS NOT NULL
+        AND m.Pago_MedioPago IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de pagos completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de pagos: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar encuestas respondidas
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarEncuestasRespondidas
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando encuestas respondidas...';
+        
+        -- Primero insertamos las encuestas (una por registro único de curso y fecha)
+        INSERT INTO INSERT_PROMOCIONADOS.encuesta_respondida (curso_id, fecha_registro, observaciones)
+        SELECT DISTINCT 
+            c.id,
+            m.Encuesta_FechaRegistro,
+            m.Encuesta_Observacion
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        WHERE m.Encuesta_FechaRegistro IS NOT NULL 
+        AND m.Curso_Nombre IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de encuestas respondidas completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de encuestas respondidas: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Procedimiento para migrar preguntas de encuestas
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarPreguntasEncuestas
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        PRINT 'Migrando preguntas de encuestas...';
+        
+        -- Pregunta 1
+        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_respondida_id, pregunta, nota)
+        SELECT 
+            er.id,
+            m.Encuesta_Pregunta1,
+            m.Encuesta_Nota1
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
+        WHERE m.Encuesta_Pregunta1 IS NOT NULL AND m.Encuesta_Nota1 IS NOT NULL;
+        
+        -- Pregunta 2
+        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_respondida_id, pregunta, nota)
+        SELECT 
+            er.id,
+            m.Encuesta_Pregunta2,
+            m.Encuesta_Nota2
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
+        WHERE m.Encuesta_Pregunta2 IS NOT NULL AND m.Encuesta_Nota2 IS NOT NULL;
+        
+        -- Pregunta 3
+        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_respondida_id, pregunta, nota)
+        SELECT 
+            er.id,
+            m.Encuesta_Pregunta3,
+            m.Encuesta_Nota3
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
+        WHERE m.Encuesta_Pregunta3 IS NOT NULL AND m.Encuesta_Nota3 IS NOT NULL;
+        
+        -- Pregunta 4
+        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_respondida_id, pregunta, nota)
+        SELECT 
+            er.id,
+            m.Encuesta_Pregunta4,
+            m.Encuesta_Nota4
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
+        WHERE m.Encuesta_Pregunta4 IS NOT NULL AND m.Encuesta_Nota4 IS NOT NULL;
+        
+        COMMIT TRANSACTION;
+        PRINT 'Migración de preguntas de encuestas completada exitosamente.';
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        PRINT 'Error en migración de preguntas de encuestas: ' + ERROR_MESSAGE();
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Actualizar el procedimiento principal para incluir todos los nuevos procedimientos
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.MigrarTodosLosDatos
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    PRINT 'Iniciando migración completa de datos...';
+    
+    -- Migración de datos básicos y dimensiones
+    EXEC INSERT_PROMOCIONADOS.MigrarDatosBasicos;
+    EXEC INSERT_PROMOCIONADOS.MigrarLocalidades;
+    EXEC INSERT_PROMOCIONADOS.MigrarSedes;
+    EXEC INSERT_PROMOCIONADOS.MigrarProfesores;
+    EXEC INSERT_PROMOCIONADOS.MigrarAlumnos;
+    EXEC INSERT_PROMOCIONADOS.MigrarCursos;
+    EXEC INSERT_PROMOCIONADOS.MigrarDiasPorCurso;
+    EXEC INSERT_PROMOCIONADOS.MigrarPeriodos;
+    
+    -- Migración del proceso académico
+    EXEC INSERT_PROMOCIONADOS.MigrarModulos;
+    EXEC INSERT_PROMOCIONADOS.MigrarEvaluaciones;
+    EXEC INSERT_PROMOCIONADOS.MigrarEvaluacionesAlumnos;
+    EXEC INSERT_PROMOCIONADOS.MigrarTrabajosPracticos;
+    EXEC INSERT_PROMOCIONADOS.MigrarInscripcionesCurso;
+    EXEC INSERT_PROMOCIONADOS.MigrarFinales;
+    EXEC INSERT_PROMOCIONADOS.MigrarInscripcionesFinal;
+    EXEC INSERT_PROMOCIONADOS.MigrarEvaluacionesFinales;
+    
+    -- Migración del proceso financiero
+    EXEC INSERT_PROMOCIONADOS.MigrarFacturas;
+    EXEC INSERT_PROMOCIONADOS.MigrarDetallesFactura;
+    EXEC INSERT_PROMOCIONADOS.MigrarPagos;
+    
+    -- Migración de encuestas
+    EXEC INSERT_PROMOCIONADOS.MigrarEncuestasRespondidas;
+    EXEC INSERT_PROMOCIONADOS.MigrarPreguntasEncuestas;
+    
+    PRINT 'Migración completa finalizada exitosamente.';
+END;
+GO
+
+-- Procedimiento para validar la migración
+CREATE OR ALTER PROCEDURE INSERT_PROMOCIONADOS.ValidarMigracion
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    PRINT '=== VALIDACIÓN DE MIGRACIÓN ===';
+
+    DECLARE @Tabla NVARCHAR(128), @SQL NVARCHAR(MAX), @Count INT;
+
+    DECLARE tabla_cursor CURSOR FOR 
+    SELECT TABLE_NAME 
+    FROM INFORMATION_SCHEMA.TABLES 
+    WHERE TABLE_SCHEMA = 'INSERT_PROMOCIONADOS'
+    ORDER BY TABLE_NAME;
+
+    OPEN tabla_cursor;
+    FETCH NEXT FROM tabla_cursor INTO @Tabla;
+
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SET @SQL = N'SELECT @c = COUNT(*) FROM INSERT_PROMOCIONADOS.' + QUOTENAME(@Tabla);
+        EXEC sp_executesql @SQL, N'@c INT OUTPUT', @c = @Count OUTPUT;
+        PRINT @Tabla + ': ' + CAST(ISNULL(@Count,0) AS VARCHAR(20)) + ' registros';
+
+        FETCH NEXT FROM tabla_cursor INTO @Tabla;
+    END;
+
+    CLOSE tabla_cursor;
+    DEALLOCATE tabla_cursor;
+
+    PRINT '=== VALIDACIÓN COMPLETADA ===';
+END;
+GO
+
+
+-- Script principal de migración
+BEGIN TRY
+
+    PRINT '=== INICIANDO CREACIÓN DE TABLAS ===';
+
+    EXEC INSERT_PROMOCIONADOS.CrearTablas;
+
+    PRINT '=== INICIANDO MIGRACIÓN COMPLETA ===';
+    
+    EXEC INSERT_PROMOCIONADOS.MigrarTodosLosDatos;
+    
+    EXEC INSERT_PROMOCIONADOS.ValidarMigracion;
+    
+    PRINT '=== MIGRACIÓN COMPLETADA EXITOSAMENTE ===';
+END TRY
+BEGIN CATCH
+    PRINT '=== ERROR EN LA MIGRACIÓN ===';
+    PRINT 'Error: ' + ERROR_MESSAGE();
+    PRINT 'Número: ' + CAST(ERROR_NUMBER() AS VARCHAR(10));
+    PRINT 'Procedimiento: ' + ISNULL(ERROR_PROCEDURE(), 'N/A');
+    PRINT 'Línea: ' + CAST(ERROR_LINE() AS VARCHAR(10));
+    THROW;
+END CATCH;
+GO
