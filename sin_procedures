@@ -170,28 +170,22 @@ CREATE TABLE INSERT_PROMOCIONADOS.inscripcion_curso(
 
 
 
-CREATE TABLE INSERT_PROMOCIONADOS.encuesta(
+CREATE TABLE INSERT_PROMOCIONADOS.encuesta_respondida(
   id             BIGINT IDENTITY(1,1) PRIMARY KEY,
   curso_id       BIGINT NOT NULL
                  REFERENCES INSERT_PROMOCIONADOS.curso(id),
+  fecha_registro DATETIME2(6) NOT NULL,
+  observaciones  VARCHAR(255) NULL               
 );
 
-CREATE TABLE INSERT_PROMOCIONADOS.observaciones(
-  id            BIGINT IDENTITY(1,1) PRIMARY KEY,
-  encuesta_id BIGINT NOT NULL
-                         REFERENCES INSERT_PROMOCIONADOS.encuesta(id),
-  fecha_registro DATETIME2(6) NOT NULL,
-  observaciones  VARCHAR(255) NULL
-);
 
 -- Detalle: cada fila es una pregunta con su respuesta
 CREATE TABLE INSERT_PROMOCIONADOS.pregunta(
   id                     BIGINT IDENTITY(1,1) PRIMARY KEY,
   encuesta_id BIGINT NOT NULL
-                         REFERENCES INSERT_PROMOCIONADOS.encuesta(id),
+                         REFERENCES INSERT_PROMOCIONADOS.encuesta_respondida(id),
   pregunta               VARCHAR(255) NOT NULL,
   nota                   INT NULL,
-  fecha_registro DATETIME2(6) NOT NULL,
   CONSTRAINT ck_pregunta_nota CHECK (nota IS NULL OR nota BETWEEN 0 AND 10)
 );
 
@@ -629,71 +623,57 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
 
         
         -- Primero insertamos las encuestas (una por registro único de curso y fecha)
-        INSERT INTO INSERT_PROMOCIONADOS.encuesta (curso_id)
-        SELECT DISTINCT 
-            c.id
-        FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
-        WHERE m.Curso_Nombre IS NOT NULL;
-        
-        -- Insertamos observaciones
-        INSERT INTO INSERT_PROMOCIONADOS.observaciones (encuesta_id, fecha_registro, observaciones)
+        INSERT INTO INSERT_PROMOCIONADOS.encuesta_respondida (curso_id, fecha_registro, observaciones)
         SELECT 
-            e.id,
+            c.id,
             m.Encuesta_FechaRegistro,
             m.Encuesta_Observacion
         FROM gd_esquema.Maestra m
-        JOIN INSERT_PROMOCIONADOS.curso c     ON c.id = m.Curso_Codigo
-        JOIN INSERT_PROMOCIONADOS.encuesta e  ON e.curso_id = c.id
-        WHERE m.Encuesta_Observacion IS NOT NULL
-          AND m.Encuesta_FechaRegistro IS NOT NULL;
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
+        WHERE m.Curso_Nombre IS NOT NULL AND m.Encuesta_FechaRegistro IS NOT NULL;
 
         -- Pregunta 1
-        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota, fecha_registro)
+        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota)
         SELECT 
             er.id,
             m.Encuesta_Pregunta1,
-            m.Encuesta_Nota1,
-            m.Encuesta_FechaRegistro
+            m.Encuesta_Nota1
         FROM gd_esquema.Maestra m
         INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.encuesta er ON er.curso_id = c.id
+        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
         WHERE m.Encuesta_Pregunta1 IS NOT NULL AND m.Encuesta_Nota1 IS NOT NULL;
         
         -- Pregunta 2
-        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota, fecha_registro)
+        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota)
         SELECT 
             er.id,
             m.Encuesta_Pregunta2,
-            m.Encuesta_Nota2,
-            m.Encuesta_FechaRegistro
+            m.Encuesta_Nota2
         FROM gd_esquema.Maestra m
         INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.encuesta er ON er.curso_id = c.id
+        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
         WHERE m.Encuesta_Pregunta2 IS NOT NULL AND m.Encuesta_Nota2 IS NOT NULL;
         
         -- Pregunta 3
-        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota, fecha_registro)
+        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota)
         SELECT 
             er.id,
             m.Encuesta_Pregunta3,
-            m.Encuesta_Nota3,
-            m.Encuesta_FechaRegistro
+            m.Encuesta_Nota3
         FROM gd_esquema.Maestra m
         INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.encuesta er ON er.curso_id = c.id
+        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
         WHERE m.Encuesta_Pregunta3 IS NOT NULL AND m.Encuesta_Nota3 IS NOT NULL;
         
         -- Pregunta 4
-        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota, fecha_registro)
+        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota)
         SELECT 
             er.id,
             m.Encuesta_Pregunta4,
-            m.Encuesta_Nota4,
-            m.Encuesta_FechaRegistro
+            m.Encuesta_Nota4
         FROM gd_esquema.Maestra m
         INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.encuesta er ON er.curso_id = c.id
+        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
         WHERE m.Encuesta_Pregunta4 IS NOT NULL AND m.Encuesta_Nota4 IS NOT NULL;
 
       
