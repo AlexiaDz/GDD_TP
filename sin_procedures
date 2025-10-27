@@ -632,50 +632,69 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
         WHERE m.Curso_Nombre IS NOT NULL AND m.Encuesta_FechaRegistro IS NOT NULL;
 
-        -- Pregunta 1
         INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota)
         SELECT 
-            er.id,
-            m.Encuesta_Pregunta1,
-            m.Encuesta_Nota1
-        FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
-        WHERE m.Encuesta_Pregunta1 IS NOT NULL AND m.Encuesta_Nota1 IS NOT NULL;
+          er.id,
+          S.pregunta,
+          S.nota
+        FROM INSERT_PROMOCIONADOS.encuesta_respondida er
+        JOIN INSERT_PROMOCIONADOS.curso c
+          ON c.id = er.curso_id
+        JOIN (
+          -- SLOT 1
+          SELECT Curso_Nombre, Encuesta_FechaRegistro,
+                 LTRIM(RTRIM(Encuesta_Pregunta1)) AS pregunta,
+                 Encuesta_Nota1 AS nota,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY Curso_Nombre, Encuesta_FechaRegistro
+                   ORDER BY (SELECT 0)
+                 ) AS rn
+          FROM gd_esquema.Maestra
+          WHERE Encuesta_Pregunta1 IS NOT NULL AND Encuesta_Nota1 IS NOT NULL
         
-        -- Pregunta 2
-        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota)
-        SELECT 
-            er.id,
-            m.Encuesta_Pregunta2,
-            m.Encuesta_Nota2
-        FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
-        WHERE m.Encuesta_Pregunta2 IS NOT NULL AND m.Encuesta_Nota2 IS NOT NULL;
+          UNION ALL
         
-        -- Pregunta 3
-        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota)
-        SELECT 
-            er.id,
-            m.Encuesta_Pregunta3,
-            m.Encuesta_Nota3
-        FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
-        WHERE m.Encuesta_Pregunta3 IS NOT NULL AND m.Encuesta_Nota3 IS NOT NULL;
+          -- SLOT 2
+          SELECT Curso_Nombre, Encuesta_FechaRegistro,
+                 LTRIM(RTRIM(Encuesta_Pregunta2)), Encuesta_Nota2,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY Curso_Nombre, Encuesta_FechaRegistro
+                   ORDER BY (SELECT 0)
+                 )
+          FROM gd_esquema.Maestra
+          WHERE Encuesta_Pregunta2 IS NOT NULL AND Encuesta_Nota2 IS NOT NULL
         
-        -- Pregunta 4
-        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota)
-        SELECT 
-            er.id,
-            m.Encuesta_Pregunta4,
-            m.Encuesta_Nota4
-        FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
-        WHERE m.Encuesta_Pregunta4 IS NOT NULL AND m.Encuesta_Nota4 IS NOT NULL;
-
-      
-
+          UNION ALL
+        
+          -- SLOT 3
+          SELECT Curso_Nombre, Encuesta_FechaRegistro,
+                 LTRIM(RTRIM(Encuesta_Pregunta3)), Encuesta_Nota3,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY Curso_Nombre, Encuesta_FechaRegistro
+                   ORDER BY (SELECT 0)
+                 )
+          FROM gd_esquema.Maestra
+          WHERE Encuesta_Pregunta3 IS NOT NULL AND Encuesta_Nota3 IS NOT NULL
+        
+          UNION ALL
+        
+          -- SLOT 4
+          SELECT Curso_Nombre, Encuesta_FechaRegistro,
+                 LTRIM(RTRIM(Encuesta_Pregunta4)), Encuesta_Nota4,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY Curso_Nombre, Encuesta_FechaRegistro
+                   ORDER BY (SELECT 0)
+                 )
+          FROM gd_esquema.Maestra
+          WHERE Encuesta_Pregunta4 IS NOT NULL AND Encuesta_Nota4 IS NOT NULL
+        ) AS S
+          ON S.Curso_Nombre = c.nombre
+         AND S.Encuesta_FechaRegistro = er.fecha_registro
+        WHERE S.rn = 1
+          AND NOT EXISTS (   -- re-ejecutable sin duplicar
+                SELECT 1
+                FROM INSERT_PROMOCIONADOS.pregunta p
+                WHERE p.encuesta_id = er.id
+                  AND p.pregunta    = S.pregunta
+        );
 
