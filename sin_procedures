@@ -90,7 +90,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.alumno(
 
 
 CREATE TABLE INSERT_PROMOCIONADOS.curso(
-  id              BIGINT IDENTITY(1,1) PRIMARY KEY,
+  id              BIGINT PRIMARY KEY,
   sede_id         BIGINT NOT NULL
                   REFERENCES INSERT_PROMOCIONADOS.sede(id),
   profesor_id     BIGINT NOT NULL
@@ -134,6 +134,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.evaluacion(
 );
 
 CREATE TABLE INSERT_PROMOCIONADOS.evaluacion_alumno(
+  id                BIGINT IDENTITY(1,1) PRIMARY KEY,
   evaluacion_id BIGINT NOT NULL
                 REFERENCES INSERT_PROMOCIONADOS.evaluacion(id),
   alumno_legajo         BIGINT NOT NULL
@@ -141,7 +142,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.evaluacion_alumno(
   nota          DECIMAL(5,2) NULL,
   presente      BIT NOT NULL DEFAULT 1,
   instancia     INT NULL,
-  CONSTRAINT pk_evaluacion_alumno PRIMARY KEY (evaluacion_id, alumno_legajo)
+  CONSTRAINT uq_eval_curso UNIQUE(alumno_legajo, evaluacion_id)
 );
 
 CREATE TABLE INSERT_PROMOCIONADOS.trabajo_practico(
@@ -156,6 +157,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.trabajo_practico(
 
 
 CREATE TABLE INSERT_PROMOCIONADOS.inscripcion_curso(
+  nro_inscripcion_curso BIGINT PRIMARY KEY,
   alumno_legajo         BIGINT NOT NULL
                         REFERENCES INSERT_PROMOCIONADOS.alumno(legajo),
   curso_id              BIGINT NOT NULL
@@ -164,15 +166,20 @@ CREATE TABLE INSERT_PROMOCIONADOS.inscripcion_curso(
                         REFERENCES INSERT_PROMOCIONADOS.estado_inscripcion(id),
   fecha_inscripcion     DATETIME2(6) NOT NULL,
   fecha_respuesta       DATETIME2(6) NULL,
-  CONSTRAINT pk_inscripcion_curso PRIMARY KEY (alumno_legajo, curso_id)
 );
 
 
 
-CREATE TABLE INSERT_PROMOCIONADOS.encuesta_respondida(
+CREATE TABLE INSERT_PROMOCIONADOS.encuesta(
   id             BIGINT IDENTITY(1,1) PRIMARY KEY,
   curso_id       BIGINT NOT NULL
                  REFERENCES INSERT_PROMOCIONADOS.curso(id),
+);
+
+CREATE TABLE INSERT_PROMOCIONADOS.observaciones(
+  id            BIGINT IDENTITY(1,1) PRIMARY KEY,
+  encuesta_id BIGINT NOT NULL
+                         REFERENCES INSERT_PROMOCIONADOS.encuesta(id),
   fecha_registro DATETIME2(6) NOT NULL,
   observaciones  VARCHAR(255) NULL
 );
@@ -180,10 +187,11 @@ CREATE TABLE INSERT_PROMOCIONADOS.encuesta_respondida(
 -- Detalle: cada fila es una pregunta con su respuesta
 CREATE TABLE INSERT_PROMOCIONADOS.pregunta(
   id                     BIGINT IDENTITY(1,1) PRIMARY KEY,
-  encuesta_respondida_id BIGINT NOT NULL
-                         REFERENCES INSERT_PROMOCIONADOS.encuesta_respondida(id),
+  encuesta_id BIGINT NOT NULL
+                         REFERENCES INSERT_PROMOCIONADOS.encuesta(id),
   pregunta               VARCHAR(255) NOT NULL,
   nota                   INT NULL,
+  fecha_registro DATETIME2(6) NOT NULL,
   CONSTRAINT ck_pregunta_nota CHECK (nota IS NULL OR nota BETWEEN 0 AND 10)
 );
 
@@ -192,16 +200,17 @@ CREATE TABLE INSERT_PROMOCIONADOS.final(
   curso_id         BIGINT NOT NULL
                    REFERENCES INSERT_PROMOCIONADOS.curso(id),
   fecha_evaluacion DATETIME2(6) NOT NULL,
-  hora             TIME NOT NULL
+  hora             TIME NOT NULL,
+  descripcion      VARCHAR(255)
 );
 
 CREATE TABLE INSERT_PROMOCIONADOS.inscripcion_final(
+  nro_inscripcion_final BIGINT PRIMARY KEY,
   alumno_legajo         BIGINT NOT NULL
                         REFERENCES INSERT_PROMOCIONADOS.alumno(legajo),
   final_id              BIGINT NOT NULL
                         REFERENCES INSERT_PROMOCIONADOS.final(id),
   fecha_inscripcion DATETIME2(6) NOT NULL,
-  CONSTRAINT pk_inscripcion_final PRIMARY KEY (alumno_legajo, final_id)
 );
 
 CREATE TABLE INSERT_PROMOCIONADOS.evaluacion_final(
@@ -262,6 +271,8 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
 -- Los campos de institucion decidimos ponerlos en la tabla de sede ya que la instititucion es una sola, no vemos necesario sumar otra tabla
 -- Decidimos hacer una tabla ubicacion ya que tanto la sede como el profesor y el alumno tienen domicilio, localidad y provincia
 -- Para simplificar el procesamiento del script y ahorrar memoria de la BBDD decidimos no crear la clase Contacto para guardar los mails y telefonos de las sedes, alumnos y profesores
+-- Sede_Provincia tenia localidades y Sede_Localidad provincia asi que en los inserts lo pusimos al reves para que queden bien los datos
+-- Encontramos que hay un alumno legajo = 568029 que rindio el mismo final dos veces y en uno tiene presente y en otro no, para resolver eso unicamente tomamos la que tiene el presente
 
 
 -- Procedimiento para migrar datos básicos
@@ -292,11 +303,21 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         WHERE Inscripcion_Estado IS NOT NULL;
      
         INSERT INTO INSERT_PROMOCIONADOS.provincia (nombre)
-        SELECT DISTINCT Sede_Provincia FROM gd_esquema.Maestra WHERE Sede_Provincia IS NOT NULL
+        SELECT DISTINCT Sede_Localidad FROM gd_esquema.Maestra WHERE Sede_Localidad IS NOT NULL 
         UNION
-        SELECT DISTINCT Profesor_Provincia FROM gd_esquema.Maestra WHERE Profesor_Provincia IS NOT NULL
+        SELECT DISTINCT Profesor_Provincia FROM gd_esquema.Maestra as m WHERE Profesor_Provincia IS NOT NULL
+        AND NOT EXISTS(
+	        SELECT 1
+          FROM INSERT_PROMOCIONADOS.provincia p
+          WHERE m.Profesor_Provincia = p.nombre 
+          )
         UNION
-        SELECT DISTINCT Alumno_Provincia FROM gd_esquema.Maestra WHERE Alumno_Provincia IS NOT NULL;
+        SELECT DISTINCT Alumno_Provincia FROM gd_esquema.Maestra as m WHERE Alumno_Provincia IS NOT NULL
+          AND NOT EXISTS(
+	        SELECT 1
+          FROM INSERT_PROMOCIONADOS.provincia p
+          WHERE m.Alumno_Provincia = p.nombre 
+          );
         
 
 
@@ -305,12 +326,12 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         -- Localidades de sede
         INSERT INTO INSERT_PROMOCIONADOS.localidad (nombre, provincia_id)
         SELECT DISTINCT 
-            m.Sede_Localidad,
+            m.Sede_Provincia,
             p.id
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.provincia p ON p.nombre = m.Sede_Provincia
-        WHERE m.Sede_Localidad IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM INSERT_PROMOCIONADOS.localidad l WHERE l.nombre = m.Sede_Localidad AND l.provincia_id = p.id);
+        INNER JOIN INSERT_PROMOCIONADOS.provincia p ON p.nombre = m.Sede_Localidad
+        WHERE m.Sede_Provincia IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM INSERT_PROMOCIONADOS.localidad l WHERE l.nombre = m.Sede_Provincia AND l.provincia_id = p.id);
         
         -- Localidades de profesor
         INSERT INTO INSERT_PROMOCIONADOS.localidad (nombre, provincia_id)
@@ -335,7 +356,6 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
 
 -- Procedimiento para migrar sedes
 
-        -- Ejemplo: MigrarSedes (uso de TRIM/UPPER y join por nombre+provincia)
         INSERT INTO INSERT_PROMOCIONADOS.sede (razon_social, cuit, nombre, localidad_id, direccion, telefono, mail)
         SELECT DISTINCT 
             m.Institucion_RazonSocial,
@@ -346,10 +366,13 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
             m.Sede_Telefono,
             m.Sede_Mail
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.provincia p ON UPPER(LTRIM(RTRIM(p.nombre))) = UPPER(LTRIM(RTRIM(m.Sede_Provincia)))
-        INNER JOIN INSERT_PROMOCIONADOS.localidad l ON l.nombre = m.Sede_Localidad AND l.provincia_id = p.id
-        WHERE m.Sede_Nombre IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM INSERT_PROMOCIONADOS.sede s WHERE s.nombre = m.Sede_Nombre);
+        INNER JOIN INSERT_PROMOCIONADOS.provincia p ON UPPER(LTRIM(RTRIM(p.nombre))) = UPPER(LTRIM(RTRIM(m.Sede_Localidad)))
+        INNER JOIN INSERT_PROMOCIONADOS.localidad l 
+            ON l.nombre = m.Sede_Provincia AND l.provincia_id = p.id
+        WHERE m.Sede_Nombre IS NOT NULL AND NOT EXISTS(
+            SELECT 1 FROM INSERT_PROMOCIONADOS.sede s 
+            WHERE s.nombre = m.Sede_Nombre
+        );
 
 
 -- Procedimiento para migrar profesores
@@ -370,8 +393,9 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
 
 -- Procedimiento para migrar alumnos
 
-        INSERT INTO INSERT_PROMOCIONADOS.alumno (legajo, dni, nombre, apellido, localidad_id, direccion, telefono, mail)
-        SELECT DISTINCT 
+        INSERT INTO INSERT_PROMOCIONADOS.alumno 
+        (legajo, dni, nombre, apellido, localidad_id, direccion, telefono, mail)
+        SELECT DISTINCT
             m.Alumno_Legajo,
             m.Alumno_Dni,
             m.Alumno_Nombre,
@@ -381,23 +405,30 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
             m.Alumno_Telefono,
             m.Alumno_Mail
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.localidad l ON l.nombre = m.Alumno_Localidad
+        INNER JOIN INSERT_PROMOCIONADOS.provincia p
+            ON p.nombre = m.Alumno_Provincia
+        INNER JOIN INSERT_PROMOCIONADOS.localidad l 
+            ON l.nombre = m.Alumno_Localidad
+            AND l.provincia_id = p.id
         WHERE m.Alumno_Legajo IS NOT NULL;
 
 
 -- Procedimiento para migrar cursos
 
-        INSERT INTO INSERT_PROMOCIONADOS.curso (sede_id, profesor_id, categoria_id, descripcion, fecha_inicio, fecha_fin, duracion_meses, turno_id, precio_mensual)
-        SELECT DISTINCT 
-            s.id,
-            p.id,
-            c.id,
-            m.Curso_Nombre,
-            m.Curso_FechaInicio,
-            m.Curso_FechaFin,
-            m.Curso_DuracionMeses,
-            t.id,
-            m.Curso_PrecioMensual
+        INSERT INTO INSERT_PROMOCIONADOS.curso
+          (id, sede_id, profesor_id, categoria_id, nombre, descripcion, fecha_inicio, fecha_fin, duracion_meses, turno_id, precio_mensual)
+        SELECT DISTINCT
+          m.Curso_Codigo,
+          s.id,
+          p.id,
+          c.id,
+          m.Curso_Nombre, -- ahora mapeamos a nombre
+          m.Curso_Descripcion,
+          m.Curso_FechaInicio,
+          m.Curso_FechaFin,
+          m.Curso_DuracionMeses,
+          t.id,
+          m.Curso_PrecioMensual
         FROM gd_esquema.Maestra m
         INNER JOIN INSERT_PROMOCIONADOS.sede s ON s.nombre = m.Sede_Nombre
         INNER JOIN INSERT_PROMOCIONADOS.profesor p ON p.dni = m.Profesor_Dni
@@ -414,7 +445,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
             m.Modulo_Nombre,
             c.id
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
         WHERE m.Modulo_Nombre IS NOT NULL;
 
 
@@ -423,10 +454,10 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         INSERT INTO INSERT_PROMOCIONADOS.evaluacion (fecha_evaluacion, modulo_id)
         SELECT DISTINCT 
             m.Evaluacion_Curso_fechaEvaluacion,
-            modu.id
+            mo.id
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.modulos modu ON modu.nombre = m.Modulo_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.id = modu.curso_id
+        JOIN INSERT_PROMOCIONADOS.curso   c ON c.nombre = m.Curso_Nombre                
+        JOIN INSERT_PROMOCIONADOS.modulos mo ON mo.nombre = m.Modulo_Nombre AND mo.curso_id = c.id   
         WHERE m.Evaluacion_Curso_fechaEvaluacion IS NOT NULL AND m.Modulo_Nombre IS NOT NULL;
         
 
@@ -437,11 +468,12 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
             e.id,
             m.Alumno_Legajo,
             m.Evaluacion_Curso_Nota,
-            ISNULL(m.Evaluacion_Curso_Presente, 1),
+            ISNULL(m.Evaluacion_Curso_Presente, 0),
             m.Evaluacion_Curso_Instancia
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.evaluacion e ON e.fecha_evaluacion = m.Evaluacion_Curso_fechaEvaluacion
-        INNER JOIN INSERT_PROMOCIONADOS.modulos modu ON modu.id = e.modulo_id AND modu.nombre = m.Modulo_Nombre
+        JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre       
+        JOIN INSERT_PROMOCIONADOS.modulos mo ON mo.nombre = m.Modulo_Nombre AND mo.curso_id = c.id                    
+        JOIN INSERT_PROMOCIONADOS.evaluacion e ON e.modulo_id = mo.id AND e.fecha_evaluacion = m.Evaluacion_Curso_fechaEvaluacion
         WHERE m.Alumno_Legajo IS NOT NULL AND m.Evaluacion_Curso_fechaEvaluacion IS NOT NULL;
 
 
@@ -454,14 +486,15 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
             m.Trabajo_Practico_FechaEvaluacion,
             m.Trabajo_Practico_Nota
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
         WHERE m.Alumno_Legajo IS NOT NULL AND m.Trabajo_Practico_FechaEvaluacion IS NOT NULL;
 
 
 -- Procedimiento para migrar inscripciones a cursos
 
-        INSERT INTO INSERT_PROMOCIONADOS.inscripcion_curso (alumno_legajo, curso_id, estado_inscripcion_id, fecha_inscripcion, fecha_respuesta)
+        INSERT INTO INSERT_PROMOCIONADOS.inscripcion_curso (nro_inscripcion_curso, alumno_legajo, curso_id, estado_inscripcion_id, fecha_inscripcion, fecha_respuesta)
         SELECT DISTINCT 
+            m.Inscripcion_Numero,
             m.Alumno_Legajo,
             c.id,
             e.id,
@@ -470,7 +503,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         FROM gd_esquema.Maestra m
         INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
         INNER JOIN INSERT_PROMOCIONADOS.estado_inscripcion e ON e.estado = m.Inscripcion_Estado
-        WHERE m.Alumno_Legajo IS NOT NULL AND m.Curso_Nombre IS NOT NULL;
+        WHERE m.Alumno_Legajo IS NOT NULL AND m.Curso_Nombre IS NOT NULL AND m.Inscripcion_Numero IS NOT NULL;
  
 
 -- Procedimiento para migrar días por curso
@@ -481,35 +514,37 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
             c.id
         FROM gd_esquema.Maestra m
         INNER JOIN INSERT_PROMOCIONADOS.dias d ON d.nombre = m.Curso_Dia
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
         WHERE m.Curso_Dia IS NOT NULL;
         
 
 
 -- Procedimiento para migrar finales
 
-        INSERT INTO INSERT_PROMOCIONADOS.final (curso_id, fecha_evaluacion, hora)
+        INSERT INTO INSERT_PROMOCIONADOS.final (curso_id, fecha_evaluacion, hora, descripcion)
         SELECT DISTINCT 
             c.id,
             m.Examen_Final_Fecha,
-            m.Examen_Final_Hora
+            m.Examen_Final_Hora,
+            m.Examen_Final_Descripcion
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
         WHERE m.Examen_Final_Fecha IS NOT NULL;
         
    
 
 -- Procedimiento para migrar inscripciones a finales
 
-        INSERT INTO INSERT_PROMOCIONADOS.inscripcion_final (alumno_legajo, final_id, fecha_inscripcion)
-        SELECT DISTINCT 
+        INSERT INTO INSERT_PROMOCIONADOS.inscripcion_final (nro_inscripcion_final, alumno_legajo, final_id, fecha_inscripcion)
+        SELECT DISTINCT
+            m.Inscripcion_Final_Nro, 
             m.Alumno_Legajo,
             f.id,
             m.Inscripcion_Final_Fecha
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.final f ON f.fecha_evaluacion = m.Examen_Final_Fecha
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.id = f.curso_id AND c.descripcion = m.Curso_Nombre
-        WHERE m.Alumno_Legajo IS NOT NULL AND m.Inscripcion_Final_Fecha IS NOT NULL;
+        INNER JOIN INSERT_PROMOCIONADOS.final f ON f.fecha_evaluacion = m.Examen_Final_Fecha AND f.hora = m.Examen_Final_Hora
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.id = f.curso_id AND c.nombre = m.Curso_Nombre
+        WHERE m.Alumno_Legajo IS NOT NULL AND m.Inscripcion_Final_Fecha IS NOT NULL AND m.Inscripcion_Final_Nro IS NOT NULL;
         
 
 -- Procedimiento para migrar evaluaciones finales
@@ -519,14 +554,14 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
             m.Alumno_Legajo,
             f.id,
             p.id,
-            m.Evaluacion_Final_Nota,
-            ISNULL(m.Evaluacion_Final_Presente, 1)
+            MAX(m.Evaluacion_Final_Nota) as nota,
+            MAX(CAST(ISNULL(m.Evaluacion_Final_Presente, 0) as INT)) as presente   
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.final f ON f.fecha_evaluacion = m.Examen_Final_Fecha
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.id = f.curso_id AND c.descripcion = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.final f ON f.fecha_evaluacion = m.Examen_Final_Fecha AND f.hora = m.Examen_Final_Hora
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.id = f.curso_id AND c.nombre = m.Curso_Nombre
         INNER JOIN INSERT_PROMOCIONADOS.profesor p ON p.dni = m.Profesor_Dni
-        WHERE m.Alumno_Legajo IS NOT NULL AND m.Examen_Final_Fecha IS NOT NULL;
-        
+        WHERE m.Alumno_Legajo IS NOT NULL AND m.Examen_Final_Fecha IS NOT NULL
+        GROUP BY  m.Alumno_Legajo, f.id, p.id;
 -- Procedimiento para migrar períodos
 
 
@@ -568,7 +603,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
             p.id,
             m.Detalle_Factura_Importe
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
         INNER JOIN INSERT_PROMOCIONADOS.periodo p ON p.mes = m.Periodo_Mes AND p.anio = m.Periodo_Anio
         WHERE m.Factura_Numero IS NOT NULL 
         AND m.Curso_Nombre IS NOT NULL
@@ -594,59 +629,73 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
 
         
         -- Primero insertamos las encuestas (una por registro único de curso y fecha)
-        INSERT INTO INSERT_PROMOCIONADOS.encuesta_respondida (curso_id, fecha_registro, observaciones)
+        INSERT INTO INSERT_PROMOCIONADOS.encuesta (curso_id)
         SELECT DISTINCT 
-            c.id,
+            c.id
+        FROM gd_esquema.Maestra m
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
+        WHERE m.Curso_Nombre IS NOT NULL;
+        
+        -- Insertamos observaciones
+        INSERT INTO INSERT_PROMOCIONADOS.observaciones (encuesta_id, fecha_registro, observaciones)
+        SELECT 
+            e.id,
             m.Encuesta_FechaRegistro,
             m.Encuesta_Observacion
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
-        WHERE m.Encuesta_FechaRegistro IS NOT NULL 
-        AND m.Curso_Nombre IS NOT NULL;
+        JOIN INSERT_PROMOCIONADOS.curso c     ON c.id = m.Curso_Codigo
+        JOIN INSERT_PROMOCIONADOS.encuesta e  ON e.curso_id = c.id
+        WHERE m.Encuesta_Observacion IS NOT NULL
+          AND m.Encuesta_FechaRegistro IS NOT NULL;
 
-     
         -- Pregunta 1
-        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_respondida_id, pregunta, nota)
+        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota, fecha_registro)
         SELECT 
             er.id,
             m.Encuesta_Pregunta1,
-            m.Encuesta_Nota1
+            m.Encuesta_Nota1,
+            m.Encuesta_FechaRegistro
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.encuesta er ON er.curso_id = c.id
         WHERE m.Encuesta_Pregunta1 IS NOT NULL AND m.Encuesta_Nota1 IS NOT NULL;
         
         -- Pregunta 2
-        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_respondida_id, pregunta, nota)
+        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota, fecha_registro)
         SELECT 
             er.id,
             m.Encuesta_Pregunta2,
-            m.Encuesta_Nota2
+            m.Encuesta_Nota2,
+            m.Encuesta_FechaRegistro
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.encuesta er ON er.curso_id = c.id
         WHERE m.Encuesta_Pregunta2 IS NOT NULL AND m.Encuesta_Nota2 IS NOT NULL;
         
         -- Pregunta 3
-        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_respondida_id, pregunta, nota)
+        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota, fecha_registro)
         SELECT 
             er.id,
             m.Encuesta_Pregunta3,
-            m.Encuesta_Nota3
+            m.Encuesta_Nota3,
+            m.Encuesta_FechaRegistro
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.encuesta er ON er.curso_id = c.id
         WHERE m.Encuesta_Pregunta3 IS NOT NULL AND m.Encuesta_Nota3 IS NOT NULL;
         
         -- Pregunta 4
-        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_respondida_id, pregunta, nota)
+        INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota, fecha_registro)
         SELECT 
             er.id,
             m.Encuesta_Pregunta4,
-            m.Encuesta_Nota4
+            m.Encuesta_Nota4,
+            m.Encuesta_FechaRegistro
         FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.descripcion = m.Curso_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.encuesta_respondida er ON er.curso_id = c.id AND er.fecha_registro = m.Encuesta_FechaRegistro
+        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
+        INNER JOIN INSERT_PROMOCIONADOS.encuesta er ON er.curso_id = c.id
         WHERE m.Encuesta_Pregunta4 IS NOT NULL AND m.Encuesta_Nota4 IS NOT NULL;
+
+      
 
 
