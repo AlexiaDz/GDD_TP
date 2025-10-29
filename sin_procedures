@@ -6,6 +6,10 @@ IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'INSERT_PROMOCIONADOS')
     EXEC('CREATE SCHEMA INSERT_PROMOCIONADOS');
 GO
 
+/* =====================================================
+   CREACIÓN DE TABLAS
+   ===================================================== */  
+
 CREATE TABLE INSERT_PROMOCIONADOS.medio_pago(
   id     BIGINT IDENTITY(1,1) PRIMARY KEY,
   medio  VARCHAR(255) NOT NULL 
@@ -63,7 +67,6 @@ CREATE TABLE INSERT_PROMOCIONADOS.sede(
   mail          VARCHAR(255)
 );
 
-
 CREATE TABLE INSERT_PROMOCIONADOS.profesor(
   id           BIGINT IDENTITY(1,1) PRIMARY KEY,
   dni          VARCHAR(255)  NOT NULL,
@@ -88,7 +91,6 @@ CREATE TABLE INSERT_PROMOCIONADOS.alumno(
   mail         VARCHAR(255)
 );
 
-
 CREATE TABLE INSERT_PROMOCIONADOS.curso(
   id              BIGINT PRIMARY KEY,
   sede_id         BIGINT NOT NULL
@@ -108,8 +110,6 @@ CREATE TABLE INSERT_PROMOCIONADOS.curso(
   CONSTRAINT ck_curso_fechas CHECK (fecha_fin >= fecha_inicio)
 );
 
-
-
 CREATE TABLE INSERT_PROMOCIONADOS.dias_por_curso(
   dia_id    BIGINT NOT NULL
             REFERENCES INSERT_PROMOCIONADOS.dias(id),
@@ -117,7 +117,6 @@ CREATE TABLE INSERT_PROMOCIONADOS.dias_por_curso(
             REFERENCES INSERT_PROMOCIONADOS.curso(id),
   CONSTRAINT pk_dias_por_curso PRIMARY KEY (dia_id, curso_id)
 );
-
 
 CREATE TABLE INSERT_PROMOCIONADOS.modulos(
   id        BIGINT IDENTITY(1,1) PRIMARY KEY,
@@ -155,7 +154,6 @@ CREATE TABLE INSERT_PROMOCIONADOS.trabajo_practico(
   nota             INT   NULL
 );
 
-
 CREATE TABLE INSERT_PROMOCIONADOS.inscripcion_curso(
   nro_inscripcion_curso BIGINT PRIMARY KEY,
   alumno_legajo         BIGINT NOT NULL
@@ -168,8 +166,6 @@ CREATE TABLE INSERT_PROMOCIONADOS.inscripcion_curso(
   fecha_respuesta       DATETIME2(6) NULL,
 );
 
-
-
 CREATE TABLE INSERT_PROMOCIONADOS.encuesta_respondida(
   id             BIGINT IDENTITY(1,1) PRIMARY KEY,
   curso_id       BIGINT NOT NULL
@@ -178,8 +174,6 @@ CREATE TABLE INSERT_PROMOCIONADOS.encuesta_respondida(
   observaciones  VARCHAR(255) NULL               
 );
 
-
--- Detalle: cada fila es una pregunta con su respuesta
 CREATE TABLE INSERT_PROMOCIONADOS.pregunta(
   id                     BIGINT IDENTITY(1,1) PRIMARY KEY,
   encuesta_id BIGINT NOT NULL
@@ -240,7 +234,6 @@ CREATE TABLE INSERT_PROMOCIONADOS.detalle_factura(
   CONSTRAINT pk_detalle_factura PRIMARY KEY (curso_id, nro_factura, periodo_id)
 );
 
-
 CREATE TABLE INSERT_PROMOCIONADOS.pago(
   id            BIGINT IDENTITY(1,1) PRIMARY KEY,
   nro_factura   BIGINT NOT NULL
@@ -253,21 +246,9 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
 
 
 
-
-
 /* =====================================================
-   DECISIONES
-   ===================================================== */
-   
--- decidimos que en las tablas de incripcion la pk va a ser la combinacion del alumno con el curso o el final ya que no se puede repetir,
--- lo mismo con la tabla de detalle factura
--- Lo mismo con la tabla de dias por curso 
--- Los campos de institucion decidimos ponerlos en la tabla de sede ya que la instititucion es una sola, no vemos necesario sumar otra tabla
--- Decidimos hacer una tabla ubicacion ya que tanto la sede como el profesor y el alumno tienen domicilio, localidad y provincia
--- Para simplificar el procesamiento del script y ahorrar memoria de la BBDD decidimos no crear la clase Contacto para guardar los mails y telefonos de las sedes, alumnos y profesores
--- Sede_Provincia tenia localidades y Sede_Localidad provincia asi que en los inserts lo pusimos al reves para que queden bien los datos
--- Encontramos que hay un alumno legajo = 568029 que rindio el mismo final dos veces y en uno tiene presente y en otro no, para resolver eso unicamente tomamos la que tiene el presente
-
+   MIGRACIÓN DE DATOS
+   ===================================================== */   
 
 -- Procedimiento para migrar datos básicos
 
@@ -312,7 +293,6 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
           FROM INSERT_PROMOCIONADOS.provincia p
           WHERE m.Alumno_Provincia = p.nombre 
           );
-        
 
 
 -- Procedimiento para migrar localidades
@@ -346,7 +326,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         INNER JOIN INSERT_PROMOCIONADOS.provincia p ON p.nombre = m.Alumno_Provincia
         WHERE m.Alumno_Localidad IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM INSERT_PROMOCIONADOS.localidad l WHERE l.nombre = m.Alumno_Localidad AND l.provincia_id = p.id);
-      
+
 
 -- Procedimiento para migrar sedes
 
