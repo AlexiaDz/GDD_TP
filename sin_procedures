@@ -141,7 +141,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.evaluacion_alumno(
   nota          DECIMAL(5,2) NULL,
   presente      BIT NOT NULL DEFAULT 1,
   instancia     INT NULL,
-  CONSTRAINT uq_eval_curso UNIQUE(alumno_legajo, evaluacion_id)
+  CONSTRAINT uq_eval_curso UNIQUE(alumno_legajo, evaluacion_id, instancia)
 );
 
 CREATE TABLE INSERT_PROMOCIONADOS.trabajo_practico(
