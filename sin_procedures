@@ -276,7 +276,10 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         SELECT DISTINCT Inscripcion_Estado 
         FROM gd_esquema.Maestra 
         WHERE Inscripcion_Estado IS NOT NULL;
-     
+
+
+-- Procedimiento para migrar provincias
+
         INSERT INTO INSERT_PROMOCIONADOS.provincia (nombre)
         SELECT DISTINCT Sede_Localidad FROM gd_esquema.Maestra WHERE Sede_Localidad IS NOT NULL 
         UNION
