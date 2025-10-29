@@ -539,20 +539,19 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         INNER JOIN INSERT_PROMOCIONADOS.profesor p ON p.dni = m.Profesor_Dni
         WHERE m.Alumno_Legajo IS NOT NULL AND m.Examen_Final_Fecha IS NOT NULL
         GROUP BY  m.Alumno_Legajo, f.id, p.id;
--- Procedimiento para migrar períodos
 
+
+-- Procedimiento para migrar períodos
 
         INSERT INTO INSERT_PROMOCIONADOS.periodo (mes, anio)
         SELECT DISTINCT 
             m.Periodo_Mes,
             m.Periodo_Anio
         FROM gd_esquema.Maestra m
-        WHERE m.Periodo_Mes IS NOT NULL AND m.Periodo_Anio IS NOT NULL;
-        
+        WHERE m.Periodo_Mes IS NOT NULL AND m.Periodo_Anio IS NOT NULL;      
 
 
 -- Procedimiento para migrar facturas
-
 
         INSERT INTO INSERT_PROMOCIONADOS.factura (nro_factura, fecha, fecha_vencimiento, alumno_legajo, importe_total)
         SELECT DISTINCT 
@@ -568,7 +567,6 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
           AND NOT EXISTS (
               SELECT 1 FROM INSERT_PROMOCIONADOS.factura f WHERE f.nro_factura = m.Factura_Numero
           );
-
 
 
 -- Procedimiento para migrar detalles de factura
@@ -605,7 +603,8 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         AND m.Pago_MedioPago IS NOT NULL;
 
         
-        -- Primero insertamos las encuestas (una por registro único de curso y fecha)
+-- Procedimiento para migrar encuestas
+
         INSERT INTO INSERT_PROMOCIONADOS.encuesta_respondida (curso_id, fecha_registro, observaciones)
         SELECT 
             c.id,
@@ -614,6 +613,9 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         FROM gd_esquema.Maestra m
         INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
         WHERE m.Curso_Nombre IS NOT NULL AND m.Encuesta_FechaRegistro IS NOT NULL;
+
+
+-- Procedimiento para migrar preguntas
 
         INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota)
         SELECT 
