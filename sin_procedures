@@ -6,10 +6,6 @@ IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'INSERT_PROMOCIONADOS')
     EXEC('CREATE SCHEMA INSERT_PROMOCIONADOS');
 GO
 
-/* =====================================================
-   CREACIÓN DE TABLAS
-   ===================================================== */  
-
 CREATE TABLE INSERT_PROMOCIONADOS.medio_pago(
   id     BIGINT IDENTITY(1,1) PRIMARY KEY,
   medio  VARCHAR(255) NOT NULL 
@@ -67,6 +63,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.sede(
   mail          VARCHAR(255)
 );
 
+
 CREATE TABLE INSERT_PROMOCIONADOS.profesor(
   id           BIGINT IDENTITY(1,1) PRIMARY KEY,
   dni          VARCHAR(255)  NOT NULL,
@@ -91,6 +88,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.alumno(
   mail         VARCHAR(255)
 );
 
+
 CREATE TABLE INSERT_PROMOCIONADOS.curso(
   id              BIGINT PRIMARY KEY,
   sede_id         BIGINT NOT NULL
@@ -110,6 +108,8 @@ CREATE TABLE INSERT_PROMOCIONADOS.curso(
   CONSTRAINT ck_curso_fechas CHECK (fecha_fin >= fecha_inicio)
 );
 
+
+
 CREATE TABLE INSERT_PROMOCIONADOS.dias_por_curso(
   dia_id    BIGINT NOT NULL
             REFERENCES INSERT_PROMOCIONADOS.dias(id),
@@ -117,6 +117,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.dias_por_curso(
             REFERENCES INSERT_PROMOCIONADOS.curso(id),
   CONSTRAINT pk_dias_por_curso PRIMARY KEY (dia_id, curso_id)
 );
+
 
 CREATE TABLE INSERT_PROMOCIONADOS.modulos(
   id        BIGINT IDENTITY(1,1) PRIMARY KEY,
@@ -141,7 +142,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.evaluacion_alumno(
   nota          DECIMAL(5,2) NULL,
   presente      BIT NOT NULL DEFAULT 1,
   instancia     INT NULL,
-  CONSTRAINT uq_eval_curso UNIQUE(alumno_legajo, evaluacion_id, instancia)
+  CONSTRAINT uq_eval_curso UNIQUE(alumno_legajo, evaluacion_id)
 );
 
 CREATE TABLE INSERT_PROMOCIONADOS.trabajo_practico(
@@ -153,6 +154,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.trabajo_practico(
   fecha_evaluacion DATE  NOT NULL,
   nota             INT   NULL
 );
+
 
 CREATE TABLE INSERT_PROMOCIONADOS.inscripcion_curso(
   nro_inscripcion_curso BIGINT PRIMARY KEY,
@@ -166,6 +168,8 @@ CREATE TABLE INSERT_PROMOCIONADOS.inscripcion_curso(
   fecha_respuesta       DATETIME2(6) NULL,
 );
 
+
+
 CREATE TABLE INSERT_PROMOCIONADOS.encuesta_respondida(
   id             BIGINT IDENTITY(1,1) PRIMARY KEY,
   curso_id       BIGINT NOT NULL
@@ -174,6 +178,8 @@ CREATE TABLE INSERT_PROMOCIONADOS.encuesta_respondida(
   observaciones  VARCHAR(255) NULL               
 );
 
+
+-- Detalle: cada fila es una pregunta con su respuesta
 CREATE TABLE INSERT_PROMOCIONADOS.pregunta(
   id                     BIGINT IDENTITY(1,1) PRIMARY KEY,
   encuesta_id BIGINT NOT NULL
@@ -234,6 +240,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.detalle_factura(
   CONSTRAINT pk_detalle_factura PRIMARY KEY (curso_id, nro_factura, periodo_id)
 );
 
+
 CREATE TABLE INSERT_PROMOCIONADOS.pago(
   id            BIGINT IDENTITY(1,1) PRIMARY KEY,
   nro_factura   BIGINT NOT NULL
@@ -246,11 +253,23 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
 
 
 
-/* =====================================================
-   MIGRACIÓN DE DATOS
-   ===================================================== */   
 
--- Procedimiento para migrar datos básicos
+
+/* =====================================================
+   DECISIONES
+   ===================================================== */
+   
+-- decidimos que en las tablas de incripcion la pk va a ser la combinacion del alumno con el curso o el final ya que no se puede repetir,
+-- lo mismo con la tabla de detalle factura
+-- Lo mismo con la tabla de dias por curso 
+-- Los campos de institucion decidimos ponerlos en la tabla de sede ya que la instititucion es una sola, no vemos necesario sumar otra tabla
+-- Decidimos hacer una tabla ubicacion ya que tanto la sede como el profesor y el alumno tienen domicilio, localidad y provincia
+-- Para simplificar el procesamiento del script y ahorrar memoria de la BBDD decidimos no crear la clase Contacto para guardar los mails y telefonos de las sedes, alumnos y profesores
+-- Sede_Provincia tenia localidades y Sede_Localidad provincia asi que en los inserts lo pusimos al reves para que queden bien los datos
+-- Encontramos que hay un alumno legajo = 568029 que rindio el mismo final dos veces y en uno tiene presente y en otro no, para resolver eso unicamente tomamos la que tiene el presente
+
+
+-- Procedimiento para migrar datos b�sicos
 
         INSERT INTO INSERT_PROMOCIONADOS.medio_pago (medio)
         SELECT DISTINCT Pago_MedioPago 
@@ -276,10 +295,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         SELECT DISTINCT Inscripcion_Estado 
         FROM gd_esquema.Maestra 
         WHERE Inscripcion_Estado IS NOT NULL;
-
-
--- Procedimiento para migrar provincias
-
+     
         INSERT INTO INSERT_PROMOCIONADOS.provincia (nombre)
         SELECT DISTINCT Sede_Localidad FROM gd_esquema.Maestra WHERE Sede_Localidad IS NOT NULL 
         UNION
@@ -296,6 +312,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
           FROM INSERT_PROMOCIONADOS.provincia p
           WHERE m.Alumno_Provincia = p.nombre 
           );
+        
 
 
 -- Procedimiento para migrar localidades
@@ -329,7 +346,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         INNER JOIN INSERT_PROMOCIONADOS.provincia p ON p.nombre = m.Alumno_Provincia
         WHERE m.Alumno_Localidad IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM INSERT_PROMOCIONADOS.localidad l WHERE l.nombre = m.Alumno_Localidad AND l.provincia_id = p.id);
-
+      
 
 -- Procedimiento para migrar sedes
 
@@ -415,7 +432,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         
 
 
--- Procedimiento para migrar módulos
+-- Procedimiento para migrar m�dulos
 
         INSERT INTO INSERT_PROMOCIONADOS.modulos (nombre, curso_id)
         SELECT DISTINCT 
@@ -454,7 +471,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         WHERE m.Alumno_Legajo IS NOT NULL AND m.Evaluacion_Curso_fechaEvaluacion IS NOT NULL;
 
 
--- Procedimiento para migrar trabajos prácticos
+-- Procedimiento para migrar trabajos pr�cticos
 
         INSERT INTO INSERT_PROMOCIONADOS.trabajo_practico (curso_id, alumno_legajo, fecha_evaluacion, nota)
         SELECT DISTINCT 
@@ -483,7 +500,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         WHERE m.Alumno_Legajo IS NOT NULL AND m.Curso_Nombre IS NOT NULL AND m.Inscripcion_Numero IS NOT NULL;
  
 
--- Procedimiento para migrar días por curso
+-- Procedimiento para migrar d�as por curso
 
         INSERT INTO INSERT_PROMOCIONADOS.dias_por_curso (dia_id, curso_id)
         SELECT DISTINCT 
@@ -526,32 +543,51 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
 
 -- Procedimiento para migrar evaluaciones finales
 
-        INSERT INTO INSERT_PROMOCIONADOS.evaluacion_final (alumno_legajo, final_id, profesor_id, nota, presente)
-        SELECT DISTINCT 
-            m.Alumno_Legajo,
-            f.id,
-            p.id,
-            MAX(m.Evaluacion_Final_Nota) as nota,
-            MAX(CAST(ISNULL(m.Evaluacion_Final_Presente, 0) as INT)) as presente   
-        FROM gd_esquema.Maestra m
-        INNER JOIN INSERT_PROMOCIONADOS.final f ON f.fecha_evaluacion = m.Examen_Final_Fecha AND f.hora = m.Examen_Final_Hora
-        INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.id = f.curso_id AND c.nombre = m.Curso_Nombre
-        INNER JOIN INSERT_PROMOCIONADOS.profesor p ON p.dni = m.Profesor_Dni
-        WHERE m.Alumno_Legajo IS NOT NULL AND m.Examen_Final_Fecha IS NOT NULL
-        GROUP BY  m.Alumno_Legajo, f.id, p.id;
+        -- Sin agregados => sin "Null value is eliminated..."
+;WITH dedup AS (
+  SELECT
+      m.Alumno_Legajo,
+      f.id       AS final_id,
+      p.id       AS profesor_id,
+      m.Evaluacion_Final_Nota       AS nota,
+      CAST(ISNULL(m.Evaluacion_Final_Presente, 0) AS INT) AS presente,
+      ROW_NUMBER() OVER (
+        PARTITION BY m.Alumno_Legajo, f.id, p.id
+        ORDER BY
+          CASE WHEN m.Evaluacion_Final_Nota IS NOT NULL THEN 0 ELSE 1 END, -- 1� con nota
+          CASE WHEN ISNULL(m.Evaluacion_Final_Presente,0) = 1 THEN 0 ELSE 1 END -- luego presente=1
+      ) AS rn
+  FROM gd_esquema.Maestra m
+  INNER JOIN INSERT_PROMOCIONADOS.final f
+      ON f.fecha_evaluacion = m.Examen_Final_Fecha
+     AND f.hora             = m.Examen_Final_Hora
+  INNER JOIN INSERT_PROMOCIONADOS.curso c
+      ON c.id = f.curso_id AND c.nombre = m.Curso_Nombre
+  INNER JOIN INSERT_PROMOCIONADOS.profesor p
+      ON p.dni = m.Profesor_Dni
+  WHERE m.Alumno_Legajo IS NOT NULL
+    AND m.Examen_Final_Fecha IS NOT NULL
+)
+INSERT INTO INSERT_PROMOCIONADOS.evaluacion_final
+  (alumno_legajo, final_id, profesor_id, nota, presente)
+SELECT
+  Alumno_Legajo, final_id, profesor_id, nota, presente
+FROM dedup
+WHERE rn = 1;
+-- Procedimiento para migrar per�odos
 
-
--- Procedimiento para migrar períodos
 
         INSERT INTO INSERT_PROMOCIONADOS.periodo (mes, anio)
         SELECT DISTINCT 
             m.Periodo_Mes,
             m.Periodo_Anio
         FROM gd_esquema.Maestra m
-        WHERE m.Periodo_Mes IS NOT NULL AND m.Periodo_Anio IS NOT NULL;      
+        WHERE m.Periodo_Mes IS NOT NULL AND m.Periodo_Anio IS NOT NULL;
+        
 
 
 -- Procedimiento para migrar facturas
+
 
         INSERT INTO INSERT_PROMOCIONADOS.factura (nro_factura, fecha, fecha_vencimiento, alumno_legajo, importe_total)
         SELECT DISTINCT 
@@ -567,6 +603,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
           AND NOT EXISTS (
               SELECT 1 FROM INSERT_PROMOCIONADOS.factura f WHERE f.nro_factura = m.Factura_Numero
           );
+
 
 
 -- Procedimiento para migrar detalles de factura
@@ -603,8 +640,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         AND m.Pago_MedioPago IS NOT NULL;
 
         
--- Procedimiento para migrar encuestas
-
+        -- Primero insertamos las encuestas (una por registro �nico de curso y fecha)
         INSERT INTO INSERT_PROMOCIONADOS.encuesta_respondida (curso_id, fecha_registro, observaciones)
         SELECT 
             c.id,
@@ -613,9 +649,6 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
         FROM gd_esquema.Maestra m
         INNER JOIN INSERT_PROMOCIONADOS.curso c ON c.nombre = m.Curso_Nombre
         WHERE m.Curso_Nombre IS NOT NULL AND m.Encuesta_FechaRegistro IS NOT NULL;
-
-
--- Procedimiento para migrar preguntas
 
         INSERT INTO INSERT_PROMOCIONADOS.pregunta (encuesta_id, pregunta, nota)
         SELECT 
@@ -682,4 +715,3 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
                 WHERE p.encuesta_id = er.id
                   AND p.pregunta    = S.pregunta
         );
-
