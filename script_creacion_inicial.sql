@@ -78,7 +78,8 @@ CREATE TABLE INSERT_PROMOCIONADOS.profesor(
                REFERENCES INSERT_PROMOCIONADOS.localidad(id),
   direccion    VARCHAR(255),
   telefono     VARCHAR(255),
-  mail         VARCHAR(255)
+  mail         VARCHAR(255),
+  fecha_nacimiento DATETIME2(6)
 );
 
 CREATE TABLE INSERT_PROMOCIONADOS.alumno(
@@ -90,7 +91,8 @@ CREATE TABLE INSERT_PROMOCIONADOS.alumno(
                REFERENCES INSERT_PROMOCIONADOS.localidad(id),
   direccion    VARCHAR(255),
   telefono     VARCHAR(255),
-  mail         VARCHAR(255)
+  mail         VARCHAR(255),
+  fecha_nacimiento DATETIME2(6)
 );
 
 
@@ -363,7 +365,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
 
 -- Procedimiento para migrar profesores
 
-        INSERT INTO INSERT_PROMOCIONADOS.profesor (dni, nombre, apellido, localidad_id, direccion, telefono, mail)
+        INSERT INTO INSERT_PROMOCIONADOS.profesor (dni, nombre, apellido, localidad_id, direccion, telefono, mail, fecha_nacimiento)
         SELECT DISTINCT 
             m.Profesor_Dni,
             m.Profesor_nombre,
@@ -371,7 +373,8 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
             l.id,
             m.Profesor_Direccion,
             m.Profesor_Telefono,
-            m.Profesor_Mail
+            m.Profesor_Mail,
+            m.Profesor_FechaNacimiento
         FROM gd_esquema.Maestra m
         INNER JOIN INSERT_PROMOCIONADOS.localidad l ON l.nombre = m.Profesor_Localidad
         WHERE m.Profesor_Dni IS NOT NULL;
@@ -380,7 +383,7 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
 -- Procedimiento para migrar alumnos
 
         INSERT INTO INSERT_PROMOCIONADOS.alumno 
-        (legajo, dni, nombre, apellido, localidad_id, direccion, telefono, mail)
+        (legajo, dni, nombre, apellido, localidad_id, direccion, telefono, mail, fecha_nacimiento)
         SELECT DISTINCT
             m.Alumno_Legajo,
             m.Alumno_Dni,
@@ -389,7 +392,8 @@ CREATE TABLE INSERT_PROMOCIONADOS.pago(
             l.id,
             m.Alumno_Direccion,
             m.Alumno_Telefono,
-            m.Alumno_Mail
+            m.Alumno_Mail,
+            m.Alumno_FechaNacimiento
         FROM gd_esquema.Maestra m
         INNER JOIN INSERT_PROMOCIONADOS.provincia p
             ON p.nombre = m.Alumno_Provincia
