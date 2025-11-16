@@ -1,6 +1,11 @@
 USE GD2C2025;
 GO
 
+
+/* =========================================================
+   Dimensiones
+   ========================================================= */
+
 CREATE TABLE INSERT_PROMOCIONADOS.bi_tiempo(
     id        BIGINT IDENTITY(1,1) PRIMARY KEY,
     anio      INT      NOT NULL,
@@ -102,7 +107,10 @@ CREATE TABLE INSERT_PROMOCIONADOS.bi_pagos(
     total_ingresos    DECIMAL(18,2) NULL
 );
 
--- Creates funcionales
+
+/* =========================================================
+   Inserts Dimensiones
+   ========================================================= */
 
 
 -- Desde fecha de inicio de cursos
@@ -257,6 +265,11 @@ INSERT INTO INSERT_PROMOCIONADOS.bi_bloque_de_satisfaccion (nivel_satisfaccion)
 VALUES ('Satisfechos'), ('Neutrales'), ('Insatisfechos');
 
 
+/* =========================================================
+   Inserts Hechos
+   ========================================================= */
+
+
 INSERT INTO INSERT_PROMOCIONADOS.bi_inscripcion
     (tiempo_id, turno_id, categoria_id, sede_id,cantidad_inscriptos, cantidad_rechazos)
 SELECT
@@ -280,13 +293,11 @@ JOIN INSERT_PROMOCIONADOS.estado_inscripcion ei ON ei.id = ic.estado_inscripcion
 JOIN INSERT_PROMOCIONADOS.turno tu ON tu.id = cu.turno_id
 JOIN INSERT_PROMOCIONADOS.categoria cat ON cat.id = cu.categoria_id
 JOIN INSERT_PROMOCIONADOS.sede s ON s.id = cu.sede_id
-
--- Dimensiones BI
 JOIN INSERT_PROMOCIONADOS.bi_turnos_curso bt ON bt.turno = tu.turno
 JOIN INSERT_PROMOCIONADOS.bi_categorias_curso bc ON bc.nombre = cat.nombre
 JOIN INSERT_PROMOCIONADOS.bi_sede bs ON bs.nombre = s.nombre
-JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON t.anio = YEAR(ic.fecha_inscripcion) AND t.mes  = MONTH(ic.fecha_inscripcion)
-
+JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON t.anio = YEAR(ic.fecha_inscripcion) 
+    AND t.mes  = MONTH(ic.fecha_inscripcion)
 WHERE ic.fecha_inscripcion IS NOT NULL
 GROUP BY t.id, bt.id,bc.id, bs.id;
 
@@ -327,36 +338,18 @@ SELECT
         END
     ) AS sumatoria_notas
 FROM INSERT_PROMOCIONADOS.inscripcion_final inf
-JOIN INSERT_PROMOCIONADOS.final f
-    ON f.id = inf.final_id
-JOIN INSERT_PROMOCIONADOS.curso cu
-    ON cu.id = f.curso_id
-JOIN INSERT_PROMOCIONADOS.sede s
-    ON s.id = cu.sede_id
-LEFT JOIN INSERT_PROMOCIONADOS.categoria cat
-    ON cat.id = cu.categoria_id
-LEFT JOIN INSERT_PROMOCIONADOS.evaluacion_final ef
-    ON ef.final_id      = inf.final_id
+JOIN INSERT_PROMOCIONADOS.final f ON f.id = inf.final_id
+JOIN INSERT_PROMOCIONADOS.curso cu ON cu.id = f.curso_id
+JOIN INSERT_PROMOCIONADOS.sede s ON s.id = cu.sede_id
+LEFT JOIN INSERT_PROMOCIONADOS.categoria cat ON cat.id = cu.categoria_id
+LEFT JOIN INSERT_PROMOCIONADOS.evaluacion_final ef ON ef.final_id      = inf.final_id
    AND ef.alumno_legajo = inf.alumno_legajo
-JOIN INSERT_PROMOCIONADOS.alumno a
-    ON a.legajo = inf.alumno_legajo
-
--- Dim Sede BI
-JOIN INSERT_PROMOCIONADOS.bi_sede bs
-    ON bs.nombre = s.nombre
-
--- Dim Categoría BI (puede ser NULL)
-LEFT JOIN INSERT_PROMOCIONADOS.bi_categorias_curso bc
-    ON bc.nombre = cat.nombre
-
--- Dim Tiempo BI (mes/año del final)
-JOIN INSERT_PROMOCIONADOS.bi_tiempo t
-    ON t.anio = YEAR(f.fecha_evaluacion)
+JOIN INSERT_PROMOCIONADOS.alumno a ON a.legajo = inf.alumno_legajo
+JOIN INSERT_PROMOCIONADOS.bi_sede bs ON bs.nombre = s.nombre
+LEFT JOIN INSERT_PROMOCIONADOS.bi_categorias_curso bc ON bc.nombre = cat.nombre
+JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON t.anio = YEAR(f.fecha_evaluacion)
    AND t.mes  = MONTH(f.fecha_evaluacion)
-
--- Dim Rango Etario Alumnos BI (usamos edad al momento del final)
-JOIN INSERT_PROMOCIONADOS.bi_rango_edad_alumnos bra
-    ON bra.rango =
+JOIN INSERT_PROMOCIONADOS.bi_rango_edad_alumnos bra ON bra.rango =
        CASE 
          WHEN a.fecha_nacimiento IS NULL THEN '<25'  -- default si falta dato
          ELSE
@@ -370,11 +363,7 @@ JOIN INSERT_PROMOCIONADOS.bi_rango_edad_alumnos bra
              ELSE '>50'
            END
        END
-GROUP BY
-    t.id,
-    bs.id,
-    bc.id,
-    bra.id;
+GROUP BY t.id, bs.id, bc.id,bra.id;
 
 
 
@@ -399,12 +388,9 @@ SELECT
     END                            AS promedio_tiempo_finalizacion
 FROM (
     SELECT
-        -- Dim TIEMPO: año/mes de inicio del curso
         t.id   AS tiempo_id,
         bc.id  AS categoria_id,
         bs.id  AS sede_id,
-
-        -- 1 = aprobó cursada, 0 = no
         CASE 
           WHEN
             -- Tiene al menos un módulo
@@ -452,26 +438,16 @@ FROM (
             ORDER BY f3.fecha_evaluacion
         ) AS tiempo_finalizacion
     FROM INSERT_PROMOCIONADOS.inscripcion_curso ic
-    JOIN INSERT_PROMOCIONADOS.curso cu
-        ON cu.id = ic.curso_id
-    LEFT JOIN INSERT_PROMOCIONADOS.categoria cat
-        ON cat.id = cu.categoria_id
-    JOIN INSERT_PROMOCIONADOS.sede s
-        ON s.id = cu.sede_id
-
-    -- Dimensiones BI
-    JOIN INSERT_PROMOCIONADOS.bi_sede bs
-        ON bs.nombre = s.nombre
-    LEFT JOIN INSERT_PROMOCIONADOS.bi_categorias_curso bc
-        ON bc.nombre = cat.nombre
+    JOIN INSERT_PROMOCIONADOS.curso cu ON cu.id = ic.curso_id
+    LEFT JOIN INSERT_PROMOCIONADOS.categoria cat ON cat.id = cu.categoria_id
+    JOIN INSERT_PROMOCIONADOS.sede s ON s.id = cu.sede_id
+    JOIN INSERT_PROMOCIONADOS.bi_sede bs ON bs.nombre = s.nombre
+    LEFT JOIN INSERT_PROMOCIONADOS.bi_categorias_curso bc ON bc.nombre = cat.nombre
     JOIN INSERT_PROMOCIONADOS.bi_tiempo t
         ON t.anio = YEAR(cu.fecha_inicio)
        AND t.mes  = MONTH(cu.fecha_inicio)
 ) AS x
-GROUP BY
-    x.tiempo_id,
-    x.categoria_id,
-    x.sede_id;
+GROUP BY x.tiempo_id, x.categoria_id,x.sede_id;
 
 
 
@@ -503,35 +479,20 @@ SELECT
         END
     )          AS total_ingresos        -- lo que se pago ese mes en termino 
 FROM INSERT_PROMOCIONADOS.pago p
-JOIN INSERT_PROMOCIONADOS.factura f
-      ON f.nro_factura = p.nro_factura
-JOIN INSERT_PROMOCIONADOS.detalle_factura df
-      ON df.nro_factura = f.nro_factura
-JOIN INSERT_PROMOCIONADOS.periodo per
-      ON per.id = df.periodo_id
-JOIN INSERT_PROMOCIONADOS.curso cu
-      ON cu.id = df.curso_id
-JOIN INSERT_PROMOCIONADOS.sede s
-      ON s.id = cu.sede_id
-LEFT JOIN INSERT_PROMOCIONADOS.categoria cat
-      ON cat.id = cu.categoria_id
-JOIN INSERT_PROMOCIONADOS.medio_pago mp
-      ON mp.id = p.medio_pago_id
-
--- Dimensiones BI
-JOIN INSERT_PROMOCIONADOS.bi_tiempo t
-      ON t.anio = per.anio
-     AND t.mes  = per.mes
-JOIN INSERT_PROMOCIONADOS.bi_sede bs
-      ON bs.nombre = s.nombre
-LEFT JOIN INSERT_PROMOCIONADOS.bi_categorias_curso bc
-      ON bc.nombre = cat.nombre
-JOIN INSERT_PROMOCIONADOS.bi_medio_de_pago bmp
-      ON bmp.medio = mp.medio
-
+JOIN INSERT_PROMOCIONADOS.factura f ON f.nro_factura = p.nro_factura
+JOIN INSERT_PROMOCIONADOS.detalle_factura df ON df.nro_factura = f.nro_factura
+JOIN INSERT_PROMOCIONADOS.periodo per ON per.id = df.periodo_id
+JOIN INSERT_PROMOCIONADOS.curso cu ON cu.id = df.curso_id
+JOIN INSERT_PROMOCIONADOS.sede s ON s.id = cu.sede_id
+LEFT JOIN INSERT_PROMOCIONADOS.categoria cat ON cat.id = cu.categoria_id
+JOIN INSERT_PROMOCIONADOS.medio_pago mp ON mp.id = p.medio_pago_id
+JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON t.anio = per.anio
+    AND t.mes  = per.mes
+JOIN INSERT_PROMOCIONADOS.bi_sede bs ON bs.nombre = s.nombre
+LEFT JOIN INSERT_PROMOCIONADOS.bi_categorias_curso bc ON bc.nombre = cat.nombre
+JOIN INSERT_PROMOCIONADOS.bi_medio_de_pago bmp ON bmp.medio = mp.medio
 GROUP BY
     t.id, bs.id, bc.id, bmp.id;
-
 
 
 
@@ -544,27 +505,12 @@ SELECT
     bds.id AS bloque_de_satisfaccion_id,
     COUNT(*) AS cantidad_respuestas
 FROM INSERT_PROMOCIONADOS.encuesta_respondida er
-JOIN INSERT_PROMOCIONADOS.curso cu 
-    ON cu.id = er.curso_id
-JOIN INSERT_PROMOCIONADOS.profesor p
-    ON p.id = cu.profesor_id
-JOIN INSERT_PROMOCIONADOS.sede s
-    ON s.id = cu.sede_id
-JOIN INSERT_PROMOCIONADOS.pregunta pr
-    ON pr.encuesta_id = er.id    -- O la tabla que tenga la nota numérica
-
--- === Dimensiones BI ===
-
--- Tiempo por fecha_registro
-JOIN INSERT_PROMOCIONADOS.bi_tiempo t
-    ON t.anio = YEAR(er.fecha_registro)
-   AND t.mes  = MONTH(er.fecha_registro)
-
--- Sede
-JOIN INSERT_PROMOCIONADOS.bi_sede bs
-    ON bs.nombre = s.nombre
-
--- Rango Etario Profesores
+JOIN INSERT_PROMOCIONADOS.curso cu ON cu.id = er.curso_id
+JOIN INSERT_PROMOCIONADOS.profesor p ON p.id = cu.profesor_id
+JOIN INSERT_PROMOCIONADOS.sede s ON s.id = cu.sede_id
+JOIN INSERT_PROMOCIONADOS.pregunta pr ON pr.encuesta_id = er.id    
+JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON t.anio = YEAR(er.fecha_registro) AND t.mes  = MONTH(er.fecha_registro)
+JOIN INSERT_PROMOCIONADOS.bi_sede bs ON bs.nombre = s.nombre
 JOIN INSERT_PROMOCIONADOS.bi_rango_edad_profesores brp
     ON brp.rango =
        CASE 
@@ -586,4 +532,235 @@ GROUP BY
     t.id, bs.id, brp.id, bds.id;
 
 
+/* =========================================================
+   Vistas
+   ========================================================= */
+
+
+-- Vista 1
+GO
+CREATE VIEW INSERT_PROMOCIONADOS.categorias_turnos_top_3
+AS
+WITH datos AS (
+    SELECT
+        t.anio,
+        s.nombre  AS sede,
+        c.nombre  AS categoria,
+        tc.turno,
+        SUM(i.cantidad_inscriptos) AS total_inscriptos,
+        RANK() OVER (
+            PARTITION BY t.anio, s.nombre
+            ORDER BY SUM(i.cantidad_inscriptos) DESC
+        ) AS ranking
+    FROM INSERT_PROMOCIONADOS.bi_inscripcion i
+    JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON i.tiempo_id = t.id
+    JOIN INSERT_PROMOCIONADOS.bi_sede s ON i.sede_id = s.id
+    JOIN INSERT_PROMOCIONADOS.bi_categorias_curso c ON i.categoria_id = c.id
+    JOIN INSERT_PROMOCIONADOS.bi_turnos_curso tc ON i.turno_id = tc.id
+    GROUP BY t.anio, s.nombre,c.nombre,tc.turno
+)
+SELECT
+    anio,
+    sede,
+    categoria,
+    turno,
+    total_inscriptos,
+    ranking
+FROM datos
+WHERE ranking <= 3;
+GO
+
+-- Vista 2
+GO
+CREATE VIEW INSERT_PROMOCIONADOS.tasa_rechazo_inscripciones
+AS
+SELECT
+    t.anio,
+    t.mes,
+    s.nombre                          AS sede,
+    SUM(i.cantidad_inscriptos)        AS total_inscriptos,
+    SUM(i.cantidad_rechazos)          AS total_rechazados,
+    CASE 
+        WHEN SUM(i.cantidad_inscriptos) = 0 THEN 0
+        ELSE CAST((SUM(i.cantidad_rechazos) * 100.0 
+             / SUM(i.cantidad_inscriptos))AS DECIMAL(10,2))   
+        END                            
+        AS tasa_rechazo_porcentaje
+FROM INSERT_PROMOCIONADOS.bi_inscripcion i
+JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON i.tiempo_id = t.id
+JOIN INSERT_PROMOCIONADOS.bi_sede s ON i.sede_id = s.id
+GROUP BY t.anio, t.mes,s.nombre;
+GO
+
+-- Vista 3
+GO
+CREATE VIEW INSERT_PROMOCIONADOS.aprobacion_cursada_sede AS
+SELECT
+    t.anio,
+    s.nombre AS sede,
+    SUM(c.cantidad_cursantes) AS total_cursantes,
+    SUM(c.cantidad_aprobados) AS total_aprobados,
+    CASE 
+        WHEN SUM(c.cantidad_cursantes) = 0 THEN 0
+        ELSE CAST((SUM(c.cantidad_aprobados) * 100.0 / SUM(c.cantidad_cursantes)) AS DECIMAL(10,2))
+    END AS porcentaje_aprobacion
+FROM INSERT_PROMOCIONADOS.bi_cursada c
+JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON c.tiempo_id = t.id
+JOIN INSERT_PROMOCIONADOS.bi_sede s ON c.sede_id = s.id
+GROUP BY t.anio, s.nombre;
+GO
+
+
+-- Vista 4
+GO
+CREATE VIEW INSERT_PROMOCIONADOS.promedio_finalizacion_curso AS
+SELECT
+    t.anio,
+    c.nombre AS categoria,
+    CAST(AVG(cu.promedio_tiempo_finalizacion) AS DECIMAL(10,2)) AS tiempo_promedio_meses
+FROM INSERT_PROMOCIONADOS.bi_cursada cu
+JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON cu.tiempo_id = t.id
+JOIN INSERT_PROMOCIONADOS.bi_categorias_curso c ON cu.categoria_id = c.id
+WHERE cu.promedio_tiempo_finalizacion IS NOT NULL
+GROUP BY t.anio, c.nombre;
+GO
+
+
+-- Vista 5
+GO
+CREATE VIEW INSERT_PROMOCIONADOS.promedio_finales_rango AS
+SELECT
+    t.anio,
+    t.semestre,
+    r.rango AS rango_etario_alumno,
+    c.nombre AS categoria_curso,
+    CASE 
+        WHEN SUM(f.cantidad_notas) = 0 THEN 0
+        ELSE CAST((SUM(f.sumatoria_notas) / SUM(f.cantidad_notas)) AS DECIMAL(10,2))
+    END AS nota_promedio
+FROM INSERT_PROMOCIONADOS.bi_final f
+JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON f.tiempo_id = t.id
+JOIN INSERT_PROMOCIONADOS.bi_rango_edad_alumnos r ON f.rango_alumnos_id = r.id
+JOIN INSERT_PROMOCIONADOS.bi_categorias_curso c ON f.categoria_id = c.id
+WHERE f.cantidad_notas > 0
+GROUP BY t.anio, t.semestre, r.rango, c.nombre;
+GO
+
+
+-- Vista 6
+GO
+CREATE VIEW INSERT_PROMOCIONADOS.tasa_ausentismo_finales
+AS
+SELECT
+    t.anio,
+    t.semestre,
+    s.nombre AS sede,
+    SUM(f.cantidad_inscriptos) AS total_inscriptos,
+    SUM(f.cantidad_ausencias)  AS total_ausentes,
+    CASE 
+        WHEN SUM(f.cantidad_inscriptos) = 0 THEN 0
+        ELSE CAST((SUM(f.cantidad_ausencias) * 100.0 
+             / SUM(f.cantidad_inscriptos)) AS DECIMAL(10,2))
+    END AS tasa_ausentismo_porcentaje
+FROM INSERT_PROMOCIONADOS.bi_final f
+JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON t.id = f.tiempo_id
+JOIN INSERT_PROMOCIONADOS.bi_sede s ON s.id = f.sede_id
+GROUP BY t.anio, t.semestre,s.nombre;
+GO
+
+-- Vista 7
+GO
+CREATE VIEW INSERT_PROMOCIONADOS.desvio_pagos_semestre
+AS
+SELECT
+    t.anio,
+    t.semestre,
+    SUM(p.cantidad_pagos)               AS total_pagos,
+    SUM(p.cantidad_pagos_fuera_termino) AS total_pagos_fuera_termino,
+    CASE 
+        WHEN SUM(p.cantidad_pagos) = 0 THEN 0
+        ELSE CAST((SUM(p.cantidad_pagos_fuera_termino) * 100.0
+             / SUM(p.cantidad_pagos)) AS DECIMAL(10,2))
+    END AS porcentaje_pagos_fuera_termino
+FROM INSERT_PROMOCIONADOS.bi_pagos p
+JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON t.id = p.tiempo_id
+GROUP BY t.anio,t.semestre;
+GO
+
+-- Vista 8
+GO
+CREATE VIEW INSERT_PROMOCIONADOS.tasa_morosidad_mensual
+AS
+SELECT
+    t.anio,
+    t.mes,
+    s.nombre AS sede,
+    SUM(p.facturacion_esperada)                          AS facturacion_esperada,
+    SUM(p.facturacion_esperada - p.total_ingresos)       AS total_adeudado,
+    CASE 
+        WHEN SUM(p.facturacion_esperada) = 0 THEN 0
+        ELSE CAST((SUM(p.facturacion_esperada - p.total_ingresos) * 100.0
+             / SUM(p.facturacion_esperada)) AS DECIMAL(10,2))
+    END AS tasa_morosidad_porcentaje
+FROM INSERT_PROMOCIONADOS.bi_pagos p
+JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON t.id = p.tiempo_id
+JOIN INSERT_PROMOCIONADOS.bi_sede s ON s.id = p.sede_id
+GROUP BY t.anio, t.mes, s.nombre;
+GO
+
+
+-- Vista 9
+GO
+CREATE VIEW INSERT_PROMOCIONADOS.top_ingresos_categoria_anio_sede
+AS
+WITH datos AS (
+    SELECT
+        t.anio,
+        s.nombre AS sede,
+        c.nombre AS categoria,
+        SUM(ISNULL(p.total_ingresos, 0)) AS total_ingresos,
+        RANK() OVER (
+            PARTITION BY t.anio, s.nombre
+            ORDER BY SUM(ISNULL(p.total_ingresos, 0)) DESC
+        ) AS ranking
+    FROM INSERT_PROMOCIONADOS.bi_pagos p
+    JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON t.id = p.tiempo_id
+    JOIN INSERT_PROMOCIONADOS.bi_sede s ON s.id = p.sede_id
+    LEFT JOIN INSERT_PROMOCIONADOS.bi_categorias_curso c ON c.id = p.categoria_id
+    GROUP BY t.anio, s.nombre, c.nombre
+)
+SELECT anio, sede, categoria, total_ingresos, ranking
+FROM datos
+WHERE ranking <= 3;
+GO
+
+
+-- Vista 10
+GO
+CREATE VIEW INSERT_PROMOCIONADOS.indice_satisfaccion_rango_sede AS
+WITH Satisfaccion AS (
+    SELECT
+        t.anio,
+        s.nombre AS sede,
+        r.rango AS rango_etario_profesor,
+        SUM(CASE WHEN b.nivel_satisfaccion = 'Satisfechos' THEN e.cantidad_respuestas ELSE 0 END) AS satisfechos,
+        SUM(CASE WHEN b.nivel_satisfaccion = 'Insatisfechos' THEN e.cantidad_respuestas ELSE 0 END) AS insatisfechos,
+        SUM(e.cantidad_respuestas) AS total_respuestas
+    FROM INSERT_PROMOCIONADOS.bi_encuesta e
+    JOIN INSERT_PROMOCIONADOS.bi_tiempo t ON e.tiempo_id = t.id
+    JOIN INSERT_PROMOCIONADOS.bi_sede s ON e.sede_id = s.id
+    JOIN INSERT_PROMOCIONADOS.bi_rango_edad_profesores r ON e.rango_edad_profesores_id = r.id
+    JOIN INSERT_PROMOCIONADOS.bi_bloque_de_satisfaccion b ON e.bloque_de_satisfaccion_id = b.id
+    GROUP BY t.anio, s.nombre, r.rango
+)
+SELECT
+    anio,
+    sede,
+    rango_etario_profesor,
+    CASE 
+        WHEN total_respuestas = 0 THEN 50  -- Valor neutro si no hay respuestas
+        ELSE (((satisfechos * 100.0 / total_respuestas) - (insatisfechos * 100.0 / total_respuestas)) + 100) / 2
+    END AS indice_satisfaccion
+FROM Satisfaccion;
+GO
 
